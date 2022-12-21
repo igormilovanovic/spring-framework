@@ -18,6 +18,8 @@ package org.springframework.test.web.servlet.htmlunit;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -352,7 +354,8 @@ final class HtmlUnitRequestBuilder implements RequestBuilder, Mergeable {
 	}
 
 	private com.gargoylesoftware.htmlunit.util.Cookie createCookie(MockHttpServletRequest request, String sessionid) {
-		return new com.gargoylesoftware.htmlunit.util.Cookie(request.getServerName(), "JSESSIONID", sessionid,
+		return new com.gargoylesoftware.htmlunit.util.Cookie(request.getServerName(), "JSESSIONID",
+				URLEncoder.encode(sessionid, StandardCharsets.UTF_8),
 				request.getContextPath() + "/", null, request.isSecure(), true);
 	}
 

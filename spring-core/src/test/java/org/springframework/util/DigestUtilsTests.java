@@ -19,6 +19,7 @@ package org.springframework.util;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,7 @@ class DigestUtilsTests {
 
 	@BeforeEach
 	void createBytes() throws UnsupportedEncodingException {
-		bytes = "Hello World".getBytes("UTF-8");
+		bytes = "Hello World".getBytes(StandardCharsets.UTF_8);
 	}
 
 

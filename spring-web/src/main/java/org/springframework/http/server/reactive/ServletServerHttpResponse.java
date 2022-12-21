@@ -18,7 +18,9 @@ package org.springframework.http.server.reactive;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import jakarta.servlet.AsyncContext;
@@ -175,7 +177,7 @@ class ServletServerHttpResponse extends AbstractListenerServerHttpResponse {
 
 		for (List<ResponseCookie> cookies : getCookies().values()) {
 			for (ResponseCookie cookie : cookies) {
-				this.response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+				this.response.addHeader(HttpHeaders.SET_COOKIE, URLEncoder.encode(cookie.toString(), StandardCharsets.UTF_8));
 			}
 		}
 	}
