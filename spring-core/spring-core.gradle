@@ -56,6 +56,7 @@ task objenesisSourceJar(type: Jar) {
 }
 
 dependencies {
+	implementation 'commons-lang:commons-lang:2.6'
 	javapoet("com.squareup:javapoet:${javapoetVersion}@jar")
 	objenesis("org.objenesis:objenesis:${objenesisVersion}@jar")
 	api(files(javapoetRepackJar))
@@ -145,6 +146,10 @@ eclipse {
 			}
 		}
 	}
+}
+
+repositories {
+	mavenCentral()
 }
 
 tasks['eclipse'].dependsOn(javapoetRepackJar, javapoetSourceJar, objenesisRepackJar, objenesisSourceJar)

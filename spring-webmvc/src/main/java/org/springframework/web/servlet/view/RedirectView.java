@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -334,13 +335,7 @@ public class RedirectView extends AbstractUrlBasedView implements SmartView {
 		}
 		targetUrl.append(getUrl());
 
-		String enc = this.encodingScheme;
-		if (enc == null) {
-			enc = request.getCharacterEncoding();
-		}
-		if (enc == null) {
-			enc = WebUtils.DEFAULT_CHARACTER_ENCODING;
-		}
+		String enc = resolveEncoding(request);
 
 		if (this.expandUriTemplateVariables && StringUtils.hasText(targetUrl)) {
 			Map<String, String> variables = getCurrentRequestUriVariables(request);
@@ -613,6 +608,8 @@ public class RedirectView extends AbstractUrlBasedView implements SmartView {
 			String targetUrl, boolean http10Compatible) throws IOException {
 
 		String encodedURL = (isRemoteHost(targetUrl) ? targetUrl : response.encodeRedirectURL(targetUrl));
+		encodedURL = urlEncode(encodedURL, resolveEncoding(request));
+
 		if (http10Compatible) {
 			HttpStatusCode attributeStatusCode = (HttpStatusCode) request.getAttribute(View.RESPONSE_STATUS_ATTRIBUTE);
 			if (this.statusCode != null) {
@@ -633,6 +630,18 @@ public class RedirectView extends AbstractUrlBasedView implements SmartView {
 			response.setStatus(statusCode.value());
 			response.setHeader("Location", encodedURL);
 		}
+	}
+
+	@NotNull
+	private String resolveEncoding(HttpServletRequest request) {
+		String enc = this.encodingScheme;
+		if (enc == null) {
+			enc = request.getCharacterEncoding();
+		}
+		if (enc == null) {
+			enc = WebUtils.DEFAULT_CHARACTER_ENCODING;
+		}
+		return enc;
 	}
 
 	/**

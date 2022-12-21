@@ -48,6 +48,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipException;
 
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -631,7 +632,7 @@ public class PathMatchingResourcePatternResolver implements ResourcePatternResol
 	protected Set<Resource> doFindPathMatchingJarResources(Resource rootDirResource, URL rootDirUrl, String subPattern)
 			throws IOException {
 
-		URLConnection con = rootDirUrl.openConnection();
+		URLConnection con = Path.of(StringEscapeUtils.escapeHtml(rootDirUrl.toString())).toUri().toURL().openConnection();
 		JarFile jarFile;
 		String jarFileUrl;
 		String rootEntryPath;
@@ -689,7 +690,7 @@ public class PathMatchingResourcePatternResolver implements ResourcePatternResol
 			Set<Resource> result = new LinkedHashSet<>(8);
 			for (Enumeration<JarEntry> entries = jarFile.entries(); entries.hasMoreElements();) {
 				JarEntry entry = entries.nextElement();
-				String entryPath = entry.getName();
+				String entryPath = StringEscapeUtils.escapeJava(entry.getName());
 				if (entryPath.startsWith(rootEntryPath)) {
 					String relativePath = entryPath.substring(rootEntryPath.length());
 					if (getPathMatcher().match(subPattern, relativePath)) {
