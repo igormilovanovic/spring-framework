@@ -92,6 +92,7 @@ jobs:
         patterns: |
           +**/*.java
           -**/*Test*.java
+          -**/*Tests.java
         input: sarif-results/java.sarif
         output: sarif-results/java.sarif
     
