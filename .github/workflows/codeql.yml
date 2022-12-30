@@ -98,6 +98,7 @@ jobs:
       with:
         patterns: |
           -**/*Tests.java
+          -**/*.java:java/polynomial-redos 
         input: sarif-results/java.sarif
         output: sarif-results/java.sarif
     
