@@ -98,9 +98,9 @@ jobs:
       uses: advanced-security/filter-sarif@develop
       with:
         patterns: |
-          -**/*Test*.java
-          -**/*Tests.java
-          +**/*.java
+          + **/*.java
+          - **/*Test*.java
+          - **/*Tests.java
         input: sarif-results/java.sarif
         output: sarif-results/java.sarif
 
