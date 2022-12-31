@@ -48,14 +48,14 @@ jobs:
       uses: github/codeql-action/init@v2
       
       with:
-        config-file: .github/codeql-config.yml
+        config-file: .github/workflows/my-config.yml
         languages: ${{ matrix.language }}
         # If you wish to specify custom queries, you can do so here or in a config file.
         # By default, queries listed here will override any specified in a config file.
         # Prefix the list here with "+" to use these queries and those in the config file.
 
         # Details on CodeQL's query packs refer to : https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        # queries: security-extended,security-and-quality
+        queries: +security-extended,security-and-quality
         
     # # Setup Java 17 support      
     - name: Setup Java 17
@@ -99,9 +99,7 @@ jobs:
       uses: advanced-security/filter-sarif@develop
       with:
         patterns: |
-          +**/*.java
-          -**/*Test*.java
-          -**/*Tests.java
+          -spring-core/src/main/java/org/springframework/util/AntPathMatcher.java:java/polynomial-redos
         input: sarif-results/java.sarif
         output: sarif-results/java.sarif
     
