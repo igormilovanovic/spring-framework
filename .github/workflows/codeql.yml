@@ -55,7 +55,7 @@ jobs:
         # Prefix the list here with "+" to use these queries and those in the config file.
 
         # Details on CodeQL's query packs refer to : https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        # queries: security-extended,security-and-quality
+        queries: +security-extended,security-and-quality
         
     # # Setup Java 17 support      
     - name: Setup Java 17
@@ -99,8 +99,7 @@ jobs:
       uses: advanced-security/filter-sarif@develop
       with:
         patterns: |
-          -**/*Tests.java
-          -**/*.java:java/polynomial-redos 
+          -spring-core/src/main/java/org/springframework/util/AntPathMatcher.java:java/polynomial-redos
         input: sarif-results/java.sarif
         output: sarif-results/java.sarif
     
