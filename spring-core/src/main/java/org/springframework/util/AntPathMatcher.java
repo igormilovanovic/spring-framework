@@ -680,8 +680,9 @@ public class AntPathMatcher implements PathMatcher {
 					}
 					else {
 						String variablePattern = match.substring(colonIdx + 1, match.length() - 1);
+						String safePattern = validateAndSanitizePattern(variablePattern);
 						patternBuilder.append('(');
-						patternBuilder.append(variablePattern);
+						patternBuilder.append(safePattern);
 						patternBuilder.append(')');
 						String variableName = match.substring(1, colonIdx);
 						this.variableNames.add(variableName);
@@ -712,6 +713,41 @@ public class AntPathMatcher implements PathMatcher {
 				return "";
 			}
 			return Pattern.quote(s.substring(start, end));
+		}
+
+		/**
+		 * Validates a user-provided regex pattern to prevent ReDoS (Regular Expression Denial of Service) attacks.
+		 * This method checks for potentially dangerous patterns that could cause exponential backtracking.
+		 * 
+		 * @param userPattern the user-provided regex pattern to validate
+		 * @return a safe version of the pattern or the original if it's safe
+		 */
+		private String validateAndSanitizePattern(String userPattern) {
+			if (userPattern == null || userPattern.isEmpty()) {
+				return userPattern;
+			}
+			
+			// Check for nested quantifiers that can cause ReDoS
+			// Patterns like (a+)+, (a*)*, (a+)*, (a|a)* are dangerous
+			if (userPattern.matches(".*\\([^)]*[+*]\\)[+*].*") ||
+				userPattern.matches(".*\\([^)]*\\|[^)]*\\)[+*].*")) {
+				// Replace with a safer default pattern
+				return ".*";
+			}
+			
+			// Check for excessive quantifier ranges that could be exploited
+			if (userPattern.matches(".*\\{\\d{2,},\\d{2,}\\}.*")) {
+				// Replace with a more reasonable quantifier
+				return userPattern.replaceAll("\\{\\d{2,},\\d{2,}\\}", "{0,50}");
+			}
+			
+			// Additional checks for other dangerous patterns
+			// Check for alternation with overlapping patterns
+			if (userPattern.contains("(.*|.*)") || userPattern.contains("(.+|.+)")) {
+				return ".*";
+			}
+			
+			return userPattern;
 		}
 
 		/**
