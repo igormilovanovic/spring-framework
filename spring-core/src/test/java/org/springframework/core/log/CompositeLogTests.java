@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,21 +21,21 @@ import java.util.Arrays;
 import org.apache.commons.logging.Log;
 import org.junit.jupiter.api.Test;
 
-import static org.mockito.BDDMockito.when;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-
+import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link CompositeLog}.
+ * Tests for {@link CompositeLog}.
+ *
  * @author Rossen Stoyanchev
  */
-public class CompositeLogTests {
+class CompositeLogTests {
 
-	private final Log logger1 = mock(Log.class);
+	private final Log logger1 = mock();
 
-	private final Log logger2 = mock(Log.class);
+	private final Log logger2 = mock();
 
 	private final CompositeLog compositeLog = new CompositeLog(Arrays.asList(logger1, logger2));
 

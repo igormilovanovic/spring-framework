@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,10 @@
 package org.springframework.context.annotation;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.aot.hint.MemberCategory;
@@ -66,13 +68,43 @@ class AnnotationConfigApplicationContextTests {
 	}
 
 	@Test
+	void scanAndRefreshWithFullyQualifiedBeanNames() {
+		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+		context.setBeanNameGenerator(FullyQualifiedConfigurationBeanNameGenerator.INSTANCE);
+		context.scan("org.springframework.context.annotation6");
+		context.refresh();
+
+		context.getBean(ConfigForScanning.class.getName());
+		context.getBean(ConfigForScanning.class.getName() + ".testBean"); // contributed by ConfigForScanning
+		context.getBean(ComponentForScanning.class.getName());
+		context.getBean(Jsr330NamedForScanning.class.getName());
+		Map<String, Object> beans = context.getBeansWithAnnotation(Configuration.class);
+		assertThat(beans).hasSize(1);
+	}
+
+	@Test
 	void registerAndRefresh() {
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
 		context.register(Config.class, NameConfig.class);
 		context.refresh();
 
 		context.getBean("testBean");
-		context.getBean("name");
+		assertThat(context.getBean("name")).isEqualTo("foo");
+		assertThat(context.getBean("prefixName")).isEqualTo("barfoo");
+		Map<String, Object> beans = context.getBeansWithAnnotation(Configuration.class);
+		assertThat(beans).hasSize(2);
+	}
+
+	@Test
+	void registerAndRefreshWithFullyQualifiedBeanNames() {
+		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+		context.setBeanNameGenerator(FullyQualifiedConfigurationBeanNameGenerator.INSTANCE);
+		context.register(Config.class, NameConfig.class);
+		context.refresh();
+
+		context.getBean(Config.class.getName() + ".testBean");
+		assertThat(context.getBean(NameConfig.class.getName() + ".name")).isEqualTo("foo");
+		assertThat(context.getBean(NameConfig.class.getName() + ".prefixName")).isEqualTo("barfoo");
 		Map<String, Object> beans = context.getBeansWithAnnotation(Configuration.class);
 		assertThat(beans).hasSize(2);
 	}
@@ -103,19 +135,19 @@ class AnnotationConfigApplicationContextTests {
 
 		// attempt to retrieve a bean that does not exist
 		Class<?> targetType = Pattern.class;
-		assertThatExceptionOfType(NoSuchBeanDefinitionException.class).isThrownBy(() ->
-				context.getBean(targetType))
-			.withMessageContaining(format("No qualifying bean of type '%s'", targetType.getName()));
+		assertThatExceptionOfType(NoSuchBeanDefinitionException.class)
+				.isThrownBy(() -> context.getBean(targetType))
+				.withMessageContaining(format("No qualifying bean of type '%s'", targetType.getName()));
 	}
 
 	@Test
 	void getBeanByTypeAmbiguityRaisesException() {
 		ApplicationContext context = new AnnotationConfigApplicationContext(TwoTestBeanConfig.class);
-		assertThatExceptionOfType(NoSuchBeanDefinitionException.class).isThrownBy(() ->
-				context.getBean(TestBean.class))
-			.withMessageContaining("No qualifying bean of type '" + TestBean.class.getName() + "'")
-			.withMessageContaining("tb1")
-			.withMessageContaining("tb2");
+		assertThatExceptionOfType(NoSuchBeanDefinitionException.class)
+				.isThrownBy(() -> context.getBean(TestBean.class))
+				.withMessageContaining("No qualifying bean of type '" + TestBean.class.getName() + "'")
+				.withMessageContaining("tb1")
+				.withMessageContaining("tb2");
 	}
 
 	/**
@@ -305,11 +337,11 @@ class AnnotationConfigApplicationContextTests {
 		assertThat(ObjectUtils.containsElement(context.getBeanNamesForType(BeanC.class), "c")).isTrue();
 
 		assertThat(context.getBeansOfType(BeanA.class)).isEmpty();
-		assertThat(context.getBeansOfType(BeanB.class).values().iterator().next()).isSameAs(context.getBean(BeanB.class));
-		assertThat(context.getBeansOfType(BeanC.class).values().iterator().next()).isSameAs(context.getBean(BeanC.class));
+		assertThat(context.getBeansOfType(BeanB.class).values()).singleElement().isSameAs(context.getBean(BeanB.class));
+		assertThat(context.getBeansOfType(BeanC.class).values()).singleElement().isSameAs(context.getBean(BeanC.class));
 
-		assertThatExceptionOfType(NoSuchBeanDefinitionException.class).isThrownBy(() ->
-				context.getBeanFactory().resolveNamedBean(BeanA.class));
+		assertThatExceptionOfType(NoSuchBeanDefinitionException.class)
+				.isThrownBy(() -> context.getBeanFactory().resolveNamedBean(BeanA.class));
 		assertThat(context.getBeanFactory().resolveNamedBean(BeanB.class).getBeanInstance()).isSameAs(context.getBean(BeanB.class));
 		assertThat(context.getBeanFactory().resolveNamedBean(BeanC.class).getBeanInstance()).isSameAs(context.getBean(BeanC.class));
 	}
@@ -407,15 +439,17 @@ class AnnotationConfigApplicationContextTests {
 		bd2.setTargetType(ResolvableType.forClassWithGenerics(FactoryBean.class, ResolvableType.forClassWithGenerics(GenericHolder.class, Integer.class)));
 		bd2.setLazyInit(true);
 		context.registerBeanDefinition("fb2", bd2);
-		context.registerBeanDefinition("ip", new RootBeanDefinition(FactoryBeanInjectionPoints.class));
+		RootBeanDefinition bd3 = new RootBeanDefinition(FactoryBeanInjectionPoints.class);
+		bd3.setScope(RootBeanDefinition.SCOPE_PROTOTYPE);
+		context.registerBeanDefinition("ip", bd3);
 		context.refresh();
 
+		assertThat(context.getBean("ip", FactoryBeanInjectionPoints.class).factoryBean).isSameAs(context.getBean("&fb1"));
+		assertThat(context.getBean("ip", FactoryBeanInjectionPoints.class).factoryResult).isSameAs(context.getBean("fb1"));
 		assertThat(context.getType("&fb1")).isEqualTo(GenericHolderFactoryBean.class);
 		assertThat(context.getType("fb1")).isEqualTo(GenericHolder.class);
 		assertThat(context.getBeanNamesForType(FactoryBean.class)).hasSize(2);
 		assertThat(context.getBeanNamesForType(GenericHolderFactoryBean.class)).hasSize(1);
-		assertThat(context.getBean("ip", FactoryBeanInjectionPoints.class).factoryBean).isSameAs(context.getBean("&fb1"));
-		assertThat(context.getBean("ip", FactoryBeanInjectionPoints.class).factoryResult).isSameAs(context.getBean("fb1"));
 	}
 
 	@Test
@@ -423,7 +457,7 @@ class AnnotationConfigApplicationContextTests {
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
 		RootBeanDefinition bd1 = new RootBeanDefinition();
 		bd1.setBeanClass(GenericHolderFactoryBean.class);
-		bd1.setTargetType(ResolvableType.forClassWithGenerics(FactoryBean.class, ResolvableType.forClassWithGenerics(GenericHolder.class, Object.class)));
+		bd1.setTargetType(ResolvableType.forClassWithGenerics(FactoryBean.class, ResolvableType.forClassWithGenerics(GenericHolder.class, String.class)));
 		bd1.setLazyInit(true);
 		context.registerBeanDefinition("fb1", bd1);
 		RootBeanDefinition bd2 = new RootBeanDefinition();
@@ -431,13 +465,19 @@ class AnnotationConfigApplicationContextTests {
 		bd2.setTargetType(ResolvableType.forClassWithGenerics(FactoryBean.class, ResolvableType.forClassWithGenerics(GenericHolder.class, Integer.class)));
 		bd2.setLazyInit(true);
 		context.registerBeanDefinition("fb2", bd2);
-		context.registerBeanDefinition("ip", new RootBeanDefinition(FactoryResultInjectionPoint.class));
+		RootBeanDefinition bd3 = new RootBeanDefinition(FactoryBeanInjectionPoints.class);
+		bd3.setScope(RootBeanDefinition.SCOPE_PROTOTYPE);
+		context.registerBeanDefinition("ip", bd3);
 		context.refresh();
 
+		assertThat(context.getBean("ip", FactoryResultInjectionPoint.class).factoryResult).isSameAs(context.getBean("fb1"));
+		assertThat(context.getBean("ip", FactoryResultInjectionPoint.class).factoryResult).isSameAs(context.getBean("fb1"));
 		assertThat(context.getType("&fb1")).isEqualTo(GenericHolderFactoryBean.class);
 		assertThat(context.getType("fb1")).isEqualTo(GenericHolder.class);
 		assertThat(context.getBeanNamesForType(FactoryBean.class)).hasSize(2);
-		assertThat(context.getBean("ip", FactoryResultInjectionPoint.class).factoryResult).isSameAs(context.getBean("fb1"));
+		assertThat(context.getBeanNamesForType(FactoryBean.class)).hasSize(2);
+		assertThat(context.getBeanProvider(ResolvableType.forClassWithGenerics(GenericHolder.class, String.class)))
+				.containsOnly(context.getBean("fb1"));
 	}
 
 	@Test
@@ -451,14 +491,19 @@ class AnnotationConfigApplicationContextTests {
 		bd2.setBeanClass(UntypedFactoryBean.class);
 		bd2.setTargetType(ResolvableType.forClassWithGenerics(GenericHolder.class, Integer.class));
 		context.registerBeanDefinition("fb2", bd2);
-		context.registerBeanDefinition("ip", new RootBeanDefinition(FactoryResultInjectionPoint.class));
+		RootBeanDefinition bd3 = new RootBeanDefinition(FactoryResultInjectionPoint.class);
+		bd3.setScope(RootBeanDefinition.SCOPE_PROTOTYPE);
+		context.registerBeanDefinition("ip", bd3);
 		context.refresh();
 
+		assertThat(context.getBean("ip", FactoryResultInjectionPoint.class).factoryResult).isSameAs(context.getBean("fb1"));
+		assertThat(context.getBean("ip", FactoryResultInjectionPoint.class).factoryResult).isSameAs(context.getBean("fb1"));
 		assertThat(context.getType("&fb1")).isEqualTo(GenericHolderFactoryBean.class);
 		assertThat(context.getType("fb1")).isEqualTo(GenericHolder.class);
 		assertThat(context.getBeanNamesForType(FactoryBean.class)).hasSize(2);
 		assertThat(context.getBeanNamesForType(GenericHolderFactoryBean.class)).hasSize(1);
-		assertThat(context.getBean("ip", FactoryResultInjectionPoint.class).factoryResult).isSameAs(context.getBean("fb1"));
+		assertThat(context.getBeanProvider(ResolvableType.forClassWithGenerics(GenericHolder.class, String.class)))
+				.containsOnly(context.getBean("fb1"));
 	}
 
 	@Test
@@ -478,6 +523,9 @@ class AnnotationConfigApplicationContextTests {
 		assertThat(context.getType("fb")).isEqualTo(String.class);
 		assertThat(context.getBeanNamesForType(FactoryBean.class)).hasSize(1);
 		assertThat(context.getBeanNamesForType(TypedFactoryBean.class)).hasSize(1);
+		assertThat(context.getBeanProvider(String.class)).containsOnly(context.getBean("fb", String.class));
+		assertThat(context.getBeanProvider(ResolvableType.forClassWithGenerics(FactoryBean.class, String.class)))
+				.containsOnly(context.getBean("&fb"));
 	}
 
 	@Test
@@ -516,7 +564,10 @@ class AnnotationConfigApplicationContextTests {
 		TypeReference cglibType = TypeReference.of(CglibConfiguration.class.getName() + "$$SpringCGLIB$$0");
 		assertThat(RuntimeHintsPredicates.reflection().onType(cglibType)
 				.withMemberCategories(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
-						MemberCategory.INVOKE_DECLARED_METHODS, MemberCategory.DECLARED_FIELDS))
+						MemberCategory.INVOKE_DECLARED_METHODS, MemberCategory.ACCESS_DECLARED_FIELDS))
+				.accepts(runtimeHints);
+		assertThat(RuntimeHintsPredicates.reflection().onType(CglibConfiguration.class)
+				.withMemberCategories(MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_DECLARED_METHODS))
 				.accepts(runtimeHints);
 	}
 
@@ -577,6 +628,8 @@ class AnnotationConfigApplicationContextTests {
 	static class NameConfig {
 
 		@Bean String name() { return "foo"; }
+
+		@Bean(autowireCandidate = false) String prefixName() { return "bar" + name(); }
 	}
 
 	@Configuration
@@ -596,7 +649,6 @@ class AnnotationConfigApplicationContextTests {
 
 		BeanB b;
 		BeanC c;
-
 
 		@Autowired
 		BeanA(BeanB b, BeanC c) {
@@ -716,39 +768,18 @@ class AnnotationConfigApplicationContextTests {
 	}
 }
 
+
 class TestBean {
 
 	String name;
 
 	@Override
-	public int hashCode() {
-		final int prime = 31;
-		int result = 1;
-		result = prime * result + (name == null ? 0 : name.hashCode());
-		return result;
+	public boolean equals(@Nullable Object other) {
+		return (this == other || (other instanceof TestBean that && Objects.equals(this.name, that.name)));
 	}
 
 	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
-		}
-		if (obj == null) {
-			return false;
-		}
-		if (getClass() != obj.getClass()) {
-			return false;
-		}
-		TestBean other = (TestBean) obj;
-		if (name == null) {
-			if (other.name != null) {
-				return false;
-			}
-		}
-		else if (!name.equals(other.name)) {
-			return false;
-		}
-		return true;
+	public int hashCode() {
+		return this.name.hashCode();
 	}
-
 }

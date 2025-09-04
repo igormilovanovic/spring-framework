@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,23 +28,23 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.annotation.AliasFor;
 
 /**
- * {@code @ContextConfiguration} defines class-level metadata that is used to determine
- * how to load and configure an {@link org.springframework.context.ApplicationContext
- * ApplicationContext} for integration tests.
+ * {@code @ContextConfiguration} is an annotation that can be applied to a test
+ * class to define metadata that is used to determine how to load and configure
+ * an {@link org.springframework.context.ApplicationContext ApplicationContext}
+ * for integration tests.
  *
  * <h3>Supported Resource Types</h3>
  *
- * <p>Prior to Spring 3.1, only path-based resource locations (typically XML configuration
- * files) were supported. As of Spring 3.1, {@linkplain #loader context loaders} may
- * choose to support <em>either</em> path-based <em>or</em> class-based resources. As of
- * Spring 4.0.4, {@linkplain #loader context loaders} may choose to support path-based
- * <em>and</em> class-based resources simultaneously. Consequently
+ * <p>{@linkplain #loader Context loaders} may choose to support <em>either</em>
+ * path-based resource locations (typically XML configuration files) <em>or</em>
+ * class-based resources. Alternatively, context loaders may choose to support
+ * path-based <em>and</em> class-based resources simultaneously. Consequently
  * {@code @ContextConfiguration} can be used to declare either path-based resource
  * locations (via the {@link #locations} or {@link #value} attribute) <em>or</em>
  * component classes (via the {@link #classes} attribute). Note, however, that most
- * implementations of {@link SmartContextLoader} only support a single resource type. As
- * of Spring 4.1, path-based resource locations may be either XML configuration files or
- * Groovy scripts (if Groovy is on the classpath). Of course, third-party frameworks may
+ * implementations of {@link SmartContextLoader} only support a single resource type.
+ * Path-based resource locations may be either XML configuration files or Groovy
+ * scripts (if Groovy is on the classpath). Of course, third-party frameworks may
  * choose to support additional types of path-based resources.
  *
  * <h3>Component Classes</h3>
@@ -75,9 +75,8 @@ import org.springframework.core.annotation.AliasFor;
  * <p>This annotation may be used as a <em>meta-annotation</em> to create custom
  * <em>composed annotations</em>.
  *
- * <p>As of Spring Framework 5.3, this annotation will be inherited from an
- * enclosing test class by default. See
- * {@link NestedTestConfiguration @NestedTestConfiguration} for details.
+ * <p>This annotation will be inherited from an enclosing test class by default.
+ * See {@link NestedTestConfiguration @NestedTestConfiguration} for details.
  *
  * @author Sam Brannen
  * @since 2.5
@@ -292,13 +291,18 @@ public @interface ContextConfiguration {
 	 * <p>If not specified the name will be inferred based on the numerical level
 	 * within all declared contexts within the hierarchy.
 	 * <p>This attribute is only applicable when used within a test class hierarchy
-	 * or enclosing class hierarchy that is configured using
-	 * {@code @ContextHierarchy}, in which case the name can be used for
-	 * <em>merging</em> or <em>overriding</em> this configuration with configuration
-	 * of the same name in hierarchy levels defined in superclasses or enclosing
-	 * classes. See the Javadoc for {@link ContextHierarchy @ContextHierarchy} for
-	 * details.
+	 * or enclosing class hierarchy that is configured using {@code @ContextHierarchy},
+	 * in which case the name can be used for <em>merging</em> or <em>overriding</em>
+	 * this configuration with configuration of the same name in hierarchy levels
+	 * defined in superclasses or enclosing classes. As of Spring Framework 6.2.6,
+	 * the name can also be used to identify the configuration in which a
+	 * <em>Bean Override</em> should be applied &mdash; for example,
+	 * {@code @MockitoBean(contextName = "child")}. See the Javadoc for
+	 * {@link ContextHierarchy @ContextHierarchy} for details.
 	 * @since 3.2.2
+	 * @see org.springframework.test.context.bean.override.mockito.MockitoBean#contextName @MockitoBean(contextName = ...)
+	 * @see org.springframework.test.context.bean.override.mockito.MockitoSpyBean#contextName @MockitoSpyBean(contextName = ...)
+	 * @see org.springframework.test.context.bean.override.convention.TestBean#contextName @TestBean(contextName = ...)
 	 */
 	String name() default "";
 

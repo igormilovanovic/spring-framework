@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.sockjs.frame.Jackson2SockJsMessageCodec;
+import org.springframework.web.socket.sockjs.frame.JacksonJsonSockJsMessageCodec;
 import org.springframework.web.socket.sockjs.transport.TransportType;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,31 +41,26 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 /**
- * Unit tests for {@link DefaultTransportRequest}.
+ * Tests for {@link DefaultTransportRequest}.
  *
  * @author Rossen Stoyanchev
  */
 class DefaultTransportRequestTests {
 
-	private final Jackson2SockJsMessageCodec CODEC = new Jackson2SockJsMessageCodec();
+	private final JacksonJsonSockJsMessageCodec CODEC = new JacksonJsonSockJsMessageCodec();
 
-	private CompletableFuture<WebSocketSession> connectFuture;
+	private CompletableFuture<WebSocketSession> connectFuture = new CompletableFuture<>();
 
-	private BiConsumer<WebSocketSession, Throwable> connectCallback;
+	private BiConsumer<WebSocketSession, Throwable> connectCallback = mock();
 
-	private TestTransport webSocketTransport;
+	private TestTransport webSocketTransport = new TestTransport("WebSocketTestTransport");
 
-	private TestTransport xhrTransport;
+	private TestTransport xhrTransport = new TestTransport("XhrTestTransport");
 
 
-	@SuppressWarnings("unchecked")
 	@BeforeEach
 	void setup() {
-		this.connectCallback = mock(BiConsumer.class);
-		this.connectFuture = new CompletableFuture<>();
 		this.connectFuture.whenComplete(this.connectCallback);
-		this.webSocketTransport = new TestTransport("WebSocketTestTransport");
-		this.xhrTransport = new TestTransport("XhrTestTransport");
 	}
 
 
@@ -73,7 +68,7 @@ class DefaultTransportRequestTests {
 	void connect() throws Exception {
 		DefaultTransportRequest request = createTransportRequest(this.webSocketTransport, TransportType.WEBSOCKET);
 		request.connect(null, this.connectFuture);
-		WebSocketSession session = mock(WebSocketSession.class);
+		WebSocketSession session = mock();
 		this.webSocketTransport.getConnectCallback().accept(session, null);
 		assertThat(this.connectFuture.get()).isSameAs(session);
 	}
@@ -93,15 +88,15 @@ class DefaultTransportRequestTests {
 		// Transport error => no more fallback
 		this.xhrTransport.getConnectCallback().accept(null, new IOException("Fake exception 2"));
 		assertThat(this.connectFuture.isDone()).isTrue();
-		assertThatExceptionOfType(ExecutionException.class).isThrownBy(
-				this.connectFuture::get)
+		assertThatExceptionOfType(ExecutionException.class)
+			.isThrownBy(this.connectFuture::get)
 			.withMessageContaining("Fake exception 2");
 	}
 
 	@Test
 	void fallbackAfterTimeout() {
-		TaskScheduler scheduler = mock(TaskScheduler.class);
-		Runnable sessionCleanupTask = mock(Runnable.class);
+		TaskScheduler scheduler = mock();
+		Runnable sessionCleanupTask = mock();
 		DefaultTransportRequest request1 = createTransportRequest(this.webSocketTransport, TransportType.WEBSOCKET);
 		DefaultTransportRequest request2 = createTransportRequest(this.xhrTransport, TransportType.XHR_STREAMING);
 		request1.setFallbackRequest(request2);

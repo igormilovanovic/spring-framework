@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,20 @@
 
 package org.springframework.beans.factory.xml;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.Mockito;
 import org.xml.sax.InputSource;
 
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
-import org.springframework.lang.Nullable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.mockito.Mockito.mock;
 
 /**
- * Unit tests for ResourceEntityResolver.
+ * Tests for {@link ResourceEntityResolver}.
  *
  * @author Simon Baslé
  * @author Sam Brannen
@@ -68,7 +68,7 @@ class ResourceEntityResolverTests {
 	@ParameterizedTest
 	@ValueSource(strings = { "https://example.org/schema.dtd", "https://example.org/schema.xsd" })
 	void resolveEntityCallsFallbackThatReturnsInputSource(String systemId) throws Exception {
-		InputSource expected = Mockito.mock(InputSource.class);
+		InputSource expected = mock();
 		ConfigurableFallbackEntityResolver resolver = new ConfigurableFallbackEntityResolver(expected);
 
 		assertThat(resolver.resolveEntity("testPublicId", systemId)).isSameAs(expected);
@@ -89,15 +89,14 @@ class ResourceEntityResolverTests {
 		}
 	}
 
+
 	private static class ConfigurableFallbackEntityResolver extends ResourceEntityResolver {
 
 		private final boolean shouldThrow;
 
-		@Nullable
-		private final InputSource returnValue;
+		private final @Nullable InputSource returnValue;
 
 		boolean fallbackInvoked = false;
-
 
 		private ConfigurableFallbackEntityResolver(boolean shouldThrow) {
 			super(new NoOpResourceLoader());
@@ -111,10 +110,8 @@ class ResourceEntityResolverTests {
 			this.returnValue = returnValue;
 		}
 
-
-		@Nullable
 		@Override
-		protected InputSource resolveSchemaEntity(String publicId, String systemId) {
+		protected @Nullable InputSource resolveSchemaEntity(String publicId, String systemId) {
 			this.fallbackInvoked = true;
 			if (this.shouldThrow) {
 				throw new ResolutionRejectedException();
@@ -123,6 +120,8 @@ class ResourceEntityResolverTests {
 		}
 	}
 
+
+	@SuppressWarnings("serial")
 	static class ResolutionRejectedException extends RuntimeException {}
 
 }

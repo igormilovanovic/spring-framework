@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.jdbc.support;
 
 import java.sql.SQLException;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.dao.CannotAcquireLockException;
@@ -26,69 +27,112 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.BadSqlGrammarException;
-import org.springframework.lang.Nullable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 /**
+ * Tests for {@link SQLStateSQLExceptionTranslator}.
+ *
  * @author Rick Evans
  * @author Juergen Hoeller
  * @author Chris Beams
  */
-public class SQLStateSQLExceptionTranslatorTests {
+class SQLStateSQLExceptionTranslatorTests {
+
+	private final SQLExceptionTranslator translator = new SQLStateSQLExceptionTranslator();
 
 	@Test
-	public void translateNullException() {
-		assertThatIllegalArgumentException().isThrownBy(() ->
-				new SQLStateSQLExceptionTranslator().translate("", "", null));
+	void translateNullException() {
+		assertThatIllegalArgumentException().isThrownBy(() -> translator.translate("", "", null));
 	}
 
 	@Test
-	public void translateBadSqlGrammar() {
-		doTest("07", BadSqlGrammarException.class);
+	void translateBadSqlGrammar() {
+		assertTranslation("07", BadSqlGrammarException.class);
 	}
 
 	@Test
-	public void translateDataIntegrityViolation() {
-		doTest("23", DataIntegrityViolationException.class);
+	void translateDataIntegrityViolation() {
+		assertTranslation("23", DataIntegrityViolationException.class);
 	}
 
 	@Test
-	public void translateDuplicateKey() {
-		doTest("23505", DuplicateKeyException.class);
+	void translateDuplicateKey() {
+		assertTranslation("23505", DuplicateKeyException.class);
 	}
 
 	@Test
-	public void translateDataAccessResourceFailure() {
-		doTest("53", DataAccessResourceFailureException.class);
+	void translateDuplicateKeyOracle() {
+		assertTranslation("23000", 1, DuplicateKeyException.class);
 	}
 
 	@Test
-	public void translateTransientDataAccessResourceFailure() {
-		doTest("S1", TransientDataAccessResourceException.class);
+	void translateDuplicateKeyMySQL() {
+		assertTranslation("23000", 1062, DuplicateKeyException.class);
 	}
 
 	@Test
-	public void translatePessimisticLockingFailure() {
-		doTest("40", PessimisticLockingFailureException.class);
+	void translateDuplicateKeyMSSQL1() {
+		assertTranslation("23000", 2601, DuplicateKeyException.class);
 	}
 
 	@Test
-	public void translateCannotAcquireLock() {
-		doTest("40001", CannotAcquireLockException.class);
+	void translateDuplicateKeyMSSQL2() {
+		assertTranslation("23000", 2627, DuplicateKeyException.class);
+	}
+
+	@Test  // gh-31554
+	void translateDuplicateKeySapHana() {
+		assertTranslation("23000", 301, DuplicateKeyException.class);
 	}
 
 	@Test
-	public void translateUncategorized() {
-		doTest("00000000", null);
+	void translateDuplicateKeyInformix1() {
+		assertTranslation("23000", -239, DuplicateKeyException.class);
 	}
 
 	@Test
-	public void invalidSqlStateCode() {
-		doTest("NO SUCH CODE", null);
+	void translateDuplicateKeyInformix2() {
+		assertTranslation("23000", -268, DuplicateKeyException.class);
+	}
+
+	@Test
+	void translateDataAccessResourceFailure() {
+		assertTranslation("53", DataAccessResourceFailureException.class);
+	}
+
+	@Test
+	void translateTransientDataAccessResourceFailure() {
+		assertTranslation("S1", TransientDataAccessResourceException.class);
+	}
+
+	@Test
+	void translatePessimisticLockingFailure() {
+		assertTranslation("40", PessimisticLockingFailureException.class);
+	}
+
+	@Test
+	void translateCannotAcquireLock() {
+		assertTranslation("40001", CannotAcquireLockException.class);
+	}
+
+	@Test
+	void translateQueryTimeout() {
+		assertTranslation("57014", QueryTimeoutException.class);
+	}
+
+	@Test
+	void translateUncategorized() {
+		assertTranslation("00000000", null);
+	}
+
+	@Test
+	void invalidSqlStateCode() {
+		assertTranslation("NO SUCH CODE", null);
 	}
 
 	/**
@@ -97,16 +141,19 @@ public class SQLStateSQLExceptionTranslatorTests {
 	 * Bug 729170
 	 */
 	@Test
-	public void malformedSqlStateCodes() {
-		doTest(null, null);
-		doTest("", null);
-		doTest("I", null);
+	void malformedSqlStateCodes() {
+		assertTranslation(null, null);
+		assertTranslation("", null);
+		assertTranslation("I", null);
 	}
 
 
-	private void doTest(@Nullable String sqlState, @Nullable Class<?> dataAccessExceptionType) {
-		SQLExceptionTranslator translator = new SQLStateSQLExceptionTranslator();
-		SQLException ex = new SQLException("reason", sqlState);
+	private void assertTranslation(@Nullable String sqlState, @Nullable Class<?> dataAccessExceptionType) {
+		assertTranslation(sqlState, 0, dataAccessExceptionType);
+	}
+
+	private void assertTranslation(@Nullable String sqlState, int errorCode, @Nullable Class<?> dataAccessExceptionType) {
+		SQLException ex = new SQLException("reason", sqlState, errorCode);
 		DataAccessException dax = translator.translate("task", "SQL", ex);
 
 		if (dataAccessExceptionType == null) {

@@ -22,6 +22,7 @@ import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InaccessibleObjectException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
@@ -74,7 +75,7 @@ public class ReflectUtils {
 		Throwable throwable = null;
 		try {
 			classLoaderDefineClass = ClassLoader.class.getDeclaredMethod("defineClass",
-							String.class, byte[].class, Integer.TYPE, Integer.TYPE, ProtectionDomain.class);
+					String.class, byte[].class, Integer.TYPE, Integer.TYPE, ProtectionDomain.class);
 		}
 		catch (Throwable t) {
 			classLoaderDefineClass = null;
@@ -462,10 +463,21 @@ public class ReflectUtils {
 				c = lookup.defineClass(b);
 			}
 			catch (LinkageError | IllegalArgumentException ex) {
-				// in case of plain LinkageError (class already defined)
-				// or IllegalArgumentException (class in different package):
-				// fall through to traditional ClassLoader.defineClass below
-				t = ex;
+				if (ex instanceof LinkageError) {
+					// Could be a ClassLoader mismatch with the class pre-existing in a
+					// parent ClassLoader -> try loadClass before giving up completely.
+					try {
+						c = contextClass.getClassLoader().loadClass(className);
+					}
+					catch (ClassNotFoundException cnfe) {
+					}
+				}
+				if (c == null) {
+					// in case of plain LinkageError (class already defined)
+					// or IllegalArgumentException (class in different package):
+					// fall through to traditional ClassLoader.defineClass below
+					t = ex;
+				}
 			}
 			catch (Throwable ex) {
 				throw new CodeGenerationException(ex);
@@ -508,13 +520,13 @@ public class ReflectUtils {
 				catch (InvocationTargetException ex) {
 					throw new CodeGenerationException(ex.getTargetException());
 				}
-				catch (Throwable ex) {
-					// Fall through if setAccessible fails with InaccessibleObjectException on JDK 9+
-					// (on the module path and/or with a JVM bootstrapped with --illegal-access=deny)
-					if (!ex.getClass().getName().endsWith("InaccessibleObjectException")) {
-						throw new CodeGenerationException(ex);
-					}
+				catch (InaccessibleObjectException ex) {
+					// setAccessible failed with JDK 9+ InaccessibleObjectException -> fall through
+					// Avoid through JVM startup with --add-opens=java.base/java.lang=ALL-UNNAMED
 					t = ex;
+				}
+				catch (Throwable ex) {
+					throw new CodeGenerationException(ex);
 				}
 			}
 		}
@@ -525,15 +537,27 @@ public class ReflectUtils {
 				MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(contextClass, MethodHandles.lookup());
 				c = lookup.defineClass(b);
 			}
-			catch (IllegalAccessException ex) {
-				throw new CodeGenerationException(ex) {
-					@Override
-					public String getMessage() {
-						return "ClassLoader mismatch for [" + contextClass.getName() +
-								"]: JVM should be started with --add-opens=java.base/java.lang=ALL-UNNAMED " +
-								"for ClassLoader.defineClass to be accessible on " + loader.getClass().getName();
+			catch (LinkageError | IllegalAccessException ex) {
+				if (ex instanceof LinkageError) {
+					// Could be a ClassLoader mismatch with the class pre-existing in a
+					// parent ClassLoader -> try loadClass before giving up completely.
+					try {
+						c = contextClass.getClassLoader().loadClass(className);
 					}
-				};
+					catch (ClassNotFoundException cnfe) {
+					}
+				}
+				if (c == null) {
+					throw new CodeGenerationException(ex) {
+						@Override
+						public String getMessage() {
+							return "ClassLoader mismatch for [" + contextClass.getName() +
+									"]: JVM should be started with --add-opens=java.base/java.lang=ALL-UNNAMED " +
+									"for ClassLoader.defineClass to be accessible on " + loader.getClass().getName() +
+									"; consider co-locating the affected class in that target ClassLoader instead.";
+						}
+					};
+				}
 			}
 			catch (Throwable ex) {
 				throw new CodeGenerationException(ex);
@@ -542,7 +566,15 @@ public class ReflectUtils {
 
 		// No defineClass variant available at all?
 		if (c == null) {
-			throw new CodeGenerationException(t);
+			throw new CodeGenerationException(t) {
+				@Override
+				public String getMessage() {
+					return "No compatible defineClass mechanism detected: " +
+							"JVM should be started with --add-opens=java.base/java.lang=ALL-UNNAMED " +
+							"for ClassLoader.defineClass to be accessible. On the module path, " +
+							"you may not be able to define this CGLIB-generated class at all.";
+				}
+			};
 		}
 
 		// Force static initializers to run.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -47,7 +48,6 @@ import org.springframework.http.codec.EncoderHttpMessageWriter;
 import org.springframework.http.codec.FormHttpMessageWriter;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ResourceHttpMessageWriter;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.MultiValueMap;
 
@@ -81,8 +81,7 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 
 	private final Supplier<List<HttpMessageWriter<?>>> partWritersSupplier;
 
-	@Nullable
-	private final HttpMessageWriter<MultiValueMap<String, String>> formWriter;
+	private final @Nullable HttpMessageWriter<MultiValueMap<String, String>> formWriter;
 
 
 	/**
@@ -110,7 +109,7 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 	 * @param formWriter the fallback writer for form data, {@code null} by default
 	 */
 	public MultipartHttpMessageWriter(List<HttpMessageWriter<?>> partWriters,
-			@Nullable  HttpMessageWriter<MultiValueMap<String, String>> formWriter) {
+			@Nullable HttpMessageWriter<MultiValueMap<String, String>> formWriter) {
 
 		this(() -> partWriters, formWriter);
 	}
@@ -125,7 +124,7 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 	 * @since 6.0.3
 	 */
 	public MultipartHttpMessageWriter(Supplier<List<HttpMessageWriter<?>>> partWritersSupplier,
-			@Nullable  HttpMessageWriter<MultiValueMap<String, String>> formWriter) {
+			@Nullable HttpMessageWriter<MultiValueMap<String, String>> formWriter) {
 
 		super(initMediaTypes(formWriter));
 		this.partWritersSupplier = partWritersSupplier;
@@ -154,8 +153,7 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 	 * Return the configured form writer.
 	 * @since 5.1.13
 	 */
-	@Nullable
-	public HttpMessageWriter<MultiValueMap<String, String>> getFormWriter() {
+	public @Nullable HttpMessageWriter<MultiValueMap<String, String>> getFormWriter() {
 		return this.formWriter;
 	}
 
@@ -241,20 +239,19 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 				.concatMap(value -> encodePart(boundary, name, value, bufferFactory));
 	}
 
-	@SuppressWarnings("unchecked")
+	@SuppressWarnings({"rawtypes", "unchecked"})
 	private <T> Flux<DataBuffer> encodePart(byte[] boundary, String name, T value, DataBufferFactory factory) {
 		MultipartHttpOutputMessage message = new MultipartHttpOutputMessage(factory);
 		HttpHeaders headers = message.getHeaders();
 
 		T body;
 		ResolvableType resolvableType = null;
-		if (value instanceof HttpEntity) {
-			HttpEntity<T> httpEntity = (HttpEntity<T>) value;
+		if (value instanceof HttpEntity httpEntity) {
 			headers.putAll(httpEntity.getHeaders());
-			body = httpEntity.getBody();
+			body = (T) httpEntity.getBody();
 			Assert.state(body != null, "MultipartHttpMessageWriter only supports HttpEntity with body");
-			if (httpEntity instanceof ResolvableTypeProvider) {
-				resolvableType = ((ResolvableTypeProvider) httpEntity).getResolvableType();
+			if (httpEntity instanceof ResolvableTypeProvider resolvableTypeProvider) {
+				resolvableType = resolvableTypeProvider.getResolvableType();
 			}
 		}
 		else {
@@ -264,9 +261,9 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 			resolvableType = ResolvableType.forClass(body.getClass());
 		}
 
-		if (!headers.containsKey(HttpHeaders.CONTENT_DISPOSITION)) {
-			if (body instanceof Resource) {
-				headers.setContentDispositionFormData(name, ((Resource) body).getFilename());
+		if (!headers.containsHeader(HttpHeaders.CONTENT_DISPOSITION)) {
+			if (body instanceof Resource resource) {
+				headers.setContentDispositionFormData(name, resource.getFilename());
 			}
 			else if (resolvableType.resolve() == Resource.class) {
 				body = (T) Mono.from((Publisher<?>) body).doOnNext(o -> headers
@@ -284,12 +281,11 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 				.filter(partWriter -> partWriter.canWrite(finalBodyType, contentType))
 				.findFirst();
 
-		if (!writer.isPresent()) {
+		if (writer.isEmpty()) {
 			return Flux.error(new CodecException("No suitable writer found for part: " + name));
 		}
 
-		Publisher<T> bodyPublisher =
-				body instanceof Publisher ? (Publisher<T>) body : Mono.just(body);
+		Publisher<T> bodyPublisher = (body instanceof Publisher publisher ? publisher : Mono.just(body));
 
 		// The writer will call MultipartHttpOutputMessage#write which doesn't actually write
 		// but only stores the body Flux and returns Mono.empty().
@@ -317,8 +313,7 @@ public class MultipartHttpMessageWriter extends MultipartWriterSupport
 
 		private final AtomicBoolean committed = new AtomicBoolean();
 
-		@Nullable
-		private Flux<DataBuffer> body;
+		private @Nullable Flux<DataBuffer> body;
 
 		public MultipartHttpOutputMessage(DataBufferFactory bufferFactory) {
 			this.bufferFactory = bufferFactory;

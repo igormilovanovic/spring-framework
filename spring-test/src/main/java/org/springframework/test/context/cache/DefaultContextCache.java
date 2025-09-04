@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.springframework.test.context.cache;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,11 +29,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.style.ToStringCreator;
-import org.springframework.lang.Nullable;
 import org.springframework.test.annotation.DirtiesContext.HierarchyMode;
 import org.springframework.test.context.MergedContextConfiguration;
 import org.springframework.util.Assert;
@@ -46,7 +47,7 @@ import org.springframework.util.Assert;
  *
  * <p>The maximum size may be supplied as a {@linkplain #DefaultContextCache(int)
  * constructor argument} or set via a system property or Spring property named
- * {@code spring.test.context.cache.maxSize}.
+ * {@value ContextCache#MAX_CONTEXT_CACHE_SIZE_PROPERTY_NAME}.
  *
  * @author Sam Brannen
  * @author Juergen Hoeller
@@ -57,11 +58,12 @@ public class DefaultContextCache implements ContextCache {
 
 	private static final Log statsLogger = LogFactory.getLog(CONTEXT_CACHE_LOGGING_CATEGORY);
 
+
 	/**
 	 * Map of context keys to Spring {@code ApplicationContext} instances.
 	 */
 	private final Map<MergedContextConfiguration, ApplicationContext> contextMap =
-			Collections.synchronizedMap(new LruCache(32, 0.75f));
+			Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true));
 
 	/**
 	 * Map of parent keys to sets of children keys, representing a top-down <em>tree</em>
@@ -71,6 +73,21 @@ public class DefaultContextCache implements ContextCache {
 	 */
 	private final Map<MergedContextConfiguration, Set<MergedContextConfiguration>> hierarchyMap =
 			new ConcurrentHashMap<>(32);
+
+	/**
+	 * Map of context keys to active test classes (i.e., test classes that are actively
+	 * using the corresponding {@link ApplicationContext}).
+	 * @since 7.0
+	 */
+	private final Map<MergedContextConfiguration, Set<Class<?>>> contextUsageMap = new ConcurrentHashMap<>(32);
+
+	/**
+	 * Map of context keys to context load failure counts.
+	 * @since 6.1
+	 */
+	private final Map<MergedContextConfiguration, Integer> failureCounts = new ConcurrentHashMap<>(32);
+
+	private final AtomicInteger totalFailureCount = new AtomicInteger();
 
 	private final int maxSize;
 
@@ -105,21 +122,14 @@ public class DefaultContextCache implements ContextCache {
 	}
 
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public boolean contains(MergedContextConfiguration key) {
 		Assert.notNull(key, "Key must not be null");
 		return this.contextMap.containsKey(key);
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
-	@Nullable
-	public ApplicationContext get(MergedContextConfiguration key) {
+	public @Nullable ApplicationContext get(MergedContextConfiguration key) {
 		Assert.notNull(key, "Key must not be null");
 		ApplicationContext context = this.contextMap.get(key);
 		if (context == null) {
@@ -127,19 +137,63 @@ public class DefaultContextCache implements ContextCache {
 		}
 		else {
 			this.hitCount.incrementAndGet();
+			restartContextIfNecessary(context);
 		}
 		return context;
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
+	private void restartContextIfNecessary(ApplicationContext context) {
+		// Recurse up the context hierarchy first.
+		ApplicationContext parent = context.getParent();
+		if (parent != null) {
+			restartContextIfNecessary(parent);
+		}
+		if (context instanceof ConfigurableApplicationContext cac && !cac.isRunning()) {
+			cac.restart();
+		}
+	}
+
 	@Override
+	@Deprecated(since = "7.0")
 	public void put(MergedContextConfiguration key, ApplicationContext context) {
 		Assert.notNull(key, "Key must not be null");
 		Assert.notNull(context, "ApplicationContext must not be null");
 
+		evictLruContextIfNecessary();
+		putInternal(key, context);
+	}
+
+	@Override
+	public ApplicationContext put(MergedContextConfiguration key, LoadFunction loadFunction) {
+		Assert.notNull(key, "Key must not be null");
+		Assert.notNull(loadFunction, "LoadFunction must not be null");
+
+		evictLruContextIfNecessary();
+		ApplicationContext context = loadFunction.loadContext(key);
+		Assert.state(context != null, "LoadFunction must return a non-null ApplicationContext");
+		putInternal(key, context);
+		return context;
+	}
+
+	/**
+	 * Evict the least recently used (LRU) context if necessary.
+	 * @since 7.0
+	 */
+	private void evictLruContextIfNecessary() {
+		if (this.contextMap.size() >= this.maxSize) {
+			Iterator<MergedContextConfiguration> iterator = this.contextMap.keySet().iterator();
+			Assert.state(iterator.hasNext(), "Failed to retrieve LRU context");
+			// The least recently used (LRU) key is the first/head in a LinkedHashMap
+			// configured for access-order iteration order.
+			MergedContextConfiguration lruKey = iterator.next();
+			remove(lruKey, HierarchyMode.CURRENT_LEVEL);
+		}
+	}
+
+	private void putInternal(MergedContextConfiguration key, ApplicationContext context) {
 		this.contextMap.put(key, context);
+
+		// Update context hierarchy map.
 		MergedContextConfiguration child = key;
 		MergedContextConfiguration parent = child.getParent();
 		while (parent != null) {
@@ -150,15 +204,47 @@ public class DefaultContextCache implements ContextCache {
 		}
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
+	@Override
+	public void registerContextUsage(MergedContextConfiguration mergedConfig, Class<?> testClass) {
+		// Recurse up the context hierarchy first.
+		MergedContextConfiguration parent = mergedConfig.getParent();
+		if (parent != null) {
+			registerContextUsage(parent, testClass);
+		}
+		getActiveTestClasses(mergedConfig).add(testClass);
+	}
+
+	@Override
+	public void unregisterContextUsage(MergedContextConfiguration mergedConfig, Class<?> testClass) {
+		ApplicationContext context = this.contextMap.get(mergedConfig);
+		Assert.state(context != null, "ApplicationContext must not be null for: " + mergedConfig);
+
+		Set<Class<?>> activeTestClasses = getActiveTestClasses(mergedConfig);
+		activeTestClasses.remove(testClass);
+		if (activeTestClasses.isEmpty()) {
+			if (context instanceof ConfigurableApplicationContext cac && cac.isRunning()) {
+				cac.pause();
+			}
+			this.contextUsageMap.remove(mergedConfig);
+		}
+
+		// Recurse up the context hierarchy last.
+		MergedContextConfiguration parent = mergedConfig.getParent();
+		if (parent != null) {
+			unregisterContextUsage(parent, testClass);
+		}
+	}
+
+	private Set<Class<?>> getActiveTestClasses(MergedContextConfiguration mergedConfig) {
+		return this.contextUsageMap.computeIfAbsent(mergedConfig, mcc -> new HashSet<>());
+	}
+
 	@Override
 	public void remove(MergedContextConfiguration key, @Nullable HierarchyMode hierarchyMode) {
 		Assert.notNull(key, "Key must not be null");
 
 		// startKey is the level at which to begin clearing the cache,
-		// depending on the configured hierarchy mode.s
+		// depending on the configured hierarchy mode.
 		MergedContextConfiguration startKey = key;
 		if (hierarchyMode == HierarchyMode.EXHAUSTIVE) {
 			MergedContextConfiguration parent = startKey.getParent();
@@ -203,15 +289,24 @@ public class DefaultContextCache implements ContextCache {
 		// Physically remove and close leaf nodes first (i.e., on the way back up the
 		// stack as opposed to prior to the recursive call).
 		ApplicationContext context = this.contextMap.remove(key);
+		this.contextUsageMap.remove(key);
 		if (context instanceof ConfigurableApplicationContext cac) {
 			cac.close();
 		}
 		removedContexts.add(key);
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
+	@Override
+	public int getFailureCount(MergedContextConfiguration key) {
+		return this.failureCounts.getOrDefault(key, 0);
+	}
+
+	@Override
+	public void incrementFailureCount(MergedContextConfiguration key) {
+		this.totalFailureCount.incrementAndGet();
+		this.failureCounts.merge(key, 1, Integer::sum);
+	}
+
 	@Override
 	public int size() {
 		return this.contextMap.size();
@@ -224,55 +319,45 @@ public class DefaultContextCache implements ContextCache {
 		return this.maxSize;
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
+	@Override
+	public int getContextUsageCount() {
+		return this.contextUsageMap.size();
+	}
+
 	@Override
 	public int getParentContextCount() {
 		return this.hierarchyMap.size();
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public int getHitCount() {
 		return this.hitCount.get();
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public int getMissCount() {
 		return this.missCount.get();
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public void reset() {
 		synchronized (this.contextMap) {
 			clear();
 			clearStatistics();
+			this.totalFailureCount.set(0);
+			this.failureCounts.clear();
 		}
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public void clear() {
 		synchronized (this.contextMap) {
 			this.contextMap.clear();
 			this.hierarchyMap.clear();
+			this.contextUsageMap.clear();
 		}
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public void clearStatistics() {
 		synchronized (this.contextMap) {
@@ -281,9 +366,6 @@ public class DefaultContextCache implements ContextCache {
 		}
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public void logStatistics() {
 		if (statsLogger.isDebugEnabled()) {
@@ -303,43 +385,12 @@ public class DefaultContextCache implements ContextCache {
 		return new ToStringCreator(this)
 				.append("size", size())
 				.append("maxSize", getMaxSize())
+				.append("contextUsageCount", getContextUsageCount())
 				.append("parentContextCount", getParentContextCount())
 				.append("hitCount", getHitCount())
 				.append("missCount", getMissCount())
+				.append("failureCount", this.totalFailureCount)
 				.toString();
-	}
-
-
-	/**
-	 * Simple cache implementation based on {@link LinkedHashMap} with a maximum
-	 * size and a <em>least recently used</em> (LRU) eviction policy that
-	 * properly closes application contexts.
-	 * @since 4.3
-	 */
-	@SuppressWarnings("serial")
-	private class LruCache extends LinkedHashMap<MergedContextConfiguration, ApplicationContext> {
-
-		/**
-		 * Create a new {@code LruCache} with the supplied initial capacity
-		 * and load factor.
-		 * @param initialCapacity the initial capacity
-		 * @param loadFactor the load factor
-		 */
-		LruCache(int initialCapacity, float loadFactor) {
-			super(initialCapacity, loadFactor, true);
-		}
-
-		@Override
-		protected boolean removeEldestEntry(Map.Entry<MergedContextConfiguration, ApplicationContext> eldest) {
-			if (this.size() > DefaultContextCache.this.getMaxSize()) {
-				// Do NOT delete "DefaultContextCache.this."; otherwise, we accidentally
-				// invoke java.util.Map.remove(Object, Object).
-				DefaultContextCache.this.remove(eldest.getKey(), HierarchyMode.CURRENT_LEVEL);
-			}
-
-			// Return false since we invoke a custom eviction algorithm.
-			return false;
-		}
 	}
 
 }
