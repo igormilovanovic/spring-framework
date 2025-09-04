@@ -728,4 +728,49 @@ class AntPathMatcherTests {
 		assertThat(pathMatcher.match("/**/foo", "/en/foo")).isTrue();
 		assertThat(pathMatcher.match("/**/foo", "/en/foo/")).isFalse();
 	}
+
+	@Test
+	void reDoSVulnerabilityInCustomVariablePattern() {
+		// Test that potentially vulnerable regex patterns in URI template variables
+		// are handled safely without causing ReDoS attacks
+		
+		// Test case 1: Nested quantifiers (a+)+
+		String maliciousPattern1 = "/path/{var:(a+)+}";
+		String testPath1 = "/path/aaaaaaaaaaaaaaaaaaaaaaaaa";
+		
+		long startTime = System.nanoTime();
+		boolean result1 = pathMatcher.match(maliciousPattern1, testPath1);
+		long endTime = System.nanoTime();
+		long duration1 = (endTime - startTime) / 1_000_000; // Convert to milliseconds
+		
+		// The operation should complete quickly (under 100ms) even with malicious input
+		assertThat(duration1).isLessThan(100L);
+		
+		// Test case 2: Alternative with overlapping patterns (a|a)*
+		String maliciousPattern2 = "/path/{var:(a|a)*}";
+		String testPath2 = "/path/aaaaaaaaaaaaaaaaaaaaaaaaa";
+		
+		startTime = System.nanoTime();
+		boolean result2 = pathMatcher.match(maliciousPattern2, testPath2);
+		endTime = System.nanoTime();
+		long duration2 = (endTime - startTime) / 1_000_000;
+		
+		assertThat(duration2).isLessThan(100L);
+		
+		// Test case 3: Excessive quantifier ranges
+		String maliciousPattern3 = "/path/{var:a{10,100}}";
+		String testPath3 = "/path/a";
+		
+		startTime = System.nanoTime();
+		boolean result3 = pathMatcher.match(maliciousPattern3, testPath3);
+		endTime = System.nanoTime();
+		long duration3 = (endTime - startTime) / 1_000_000;
+		
+		assertThat(duration3).isLessThan(100L);
+		
+		// Verify that normal patterns still work
+		String normalPattern = "/path/{var:[a-z]+}";
+		String normalPath = "/path/test";
+		assertThat(pathMatcher.match(normalPattern, normalPath)).isTrue();
+	}
 }
