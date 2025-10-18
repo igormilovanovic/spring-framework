@@ -1,4 +1,4 @@
 query-filters:
     - exclude:
         id: 
-          - java/polynomial-redos
+          # ReDoS vulnerability in AntPathMatcher has been fixed
