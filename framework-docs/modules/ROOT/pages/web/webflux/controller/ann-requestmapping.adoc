@@ -89,61 +89,7 @@ Kotlin::
 
 You can map requests by using glob patterns and wildcards:
 
-[cols="2,3,5"]
-|===
-|Pattern |Description |Example
-
-| `spring`
-| Literal pattern
-| `+"/spring"+` matches `+"/spring"+`
-
-| `+?+`
-| Matches one character
-| `+"/pages/t?st.html"+` matches `+"/pages/test.html"+` and `+"/pages/t3st.html"+`
-
-| `+*+`
-| Matches zero or more characters within a path segment
-| `+"/resources/*.png"+` matches `+"/resources/file.png"+`
-
-`+"/projects/*/versions"+` matches `+"/projects/spring/versions"+` but does not match `+"/projects/spring/boot/versions"+`
-
-| `+**+`
-| Matches zero or more path segments
-| `+"/resources/**"+` matches `+"/resources/file.png"+` and `+"/resources/images/file.png"+`
-
-`+"/**/resources"+` matches `+"/spring/resources"+` and `+"/spring/framework/resources"+`
-
-`+"/resources/**/file.png"+` is invalid as `+**+` is not allowed in the middle of the path.
-
-`+"/**/{name}/resources"+` is invalid as only a literal pattern is allowed right after `+**+`.
-`+"/**/project/{project}/resources"+` is allowed.
-
-`+"/**/spring/**"+` is not allowed, as only a single `+**+`/`+{*path}+` instance is allowed per pattern.
-
-| `+{name}+`
-| Matches a path segment and captures it as a variable named "name"
-| `+"/projects/{project}/versions"+` matches `+"/projects/spring/versions"+` and captures `+project=spring+`
-
-`+"/projects/{project}/versions"+` does not match `+"/projects/spring/framework/versions"+` as it captures a single path segment.
-
-| `+{name:[a-z]+}+`
-| Matches the regexp `+"[a-z]+"+` as a path variable named "name"
-| `+"/projects/{project:[a-z]+}/versions"+` matches `+"/projects/spring/versions"+` but not `+"/projects/spring1/versions"+`
-
-| `+{*path}+`
-| Matches zero or more path segments and captures it as a variable named "path"
-| `+"/resources/{*file}"+` matches `+"/resources/images/file.png"+` and captures `+file=/images/file.png+`
-
-`+"{*path}/resources"+` matches `+"/spring/framework/resources"+` and captures `+path=/spring/framework+`
-
-`+"/resources/{*path}/file.png"+` is invalid as `{*path}` is not allowed in the middle of the path.
-
-`+"/{*path}/{name}/resources"+` is invalid as only a literal pattern is allowed right after `{*path}`.
-`+"/{*path}/project/{project}/resources"+` is allowed.
-
-`+"/{*path}/spring/**"+` is not allowed, as only a single `+**+`/`+{*path}+` instance is allowed per pattern.
-
-|===
+include::partial$web/uri-patterns.adoc[leveloffset=+1]
 
 Captured URI variables can be accessed with `@PathVariable`, as the following example shows:
 
@@ -447,9 +393,10 @@ is used to map requests.
 Once API versioning is enabled, you can begin to map requests with versions.
 The `@RequestMapping` `version` attribute supports the following:
 
-- No value -- matches any version
 - Fixed version ("1.2") -- matches the given version only
-- Baseline version ("1.2+") -- matches the given version and above
+- Baseline version ("1.2+") -- matches the given and
+xref:web/webflux/config.adoc#webflux-config-api-version[supported versions] above
+- No value -- matches any version, but is superseded by a more specific version match
 
 If multiple controller methods have a version less than or equal to the request version,
 the highest of those, and closest to the request version, is the one considered,
@@ -497,6 +444,9 @@ For request with version `"1.3"`:
 - (3) matches as it matches 1.2 and above, and is *chosen* as the highest match
 - (4) is higher and does not match
 
+NOTE: Version 1.3 must be present in the mappings, or be
+xref:web/webflux/config.adoc#webflux-config-api-version[configured as supported].
+
 For request with version `"1.5"`:
 
 - (1) matches as it matches any version
@@ -508,9 +458,10 @@ A request with version `"1.6"` does not have a match. (1) and (3) do match, but 
 superseded by (4), which allows only a strict match, and therefore does not match.
 In this scenario, a `NotAcceptableApiVersionException` results in a 400 response.
 
-NOTE: The above assumes the request version is a
-xref:web/webflux/config.adoc#webflux-config-api-version["supported" version],
-or otherwise it would fail.
+Controller methods without a version are intended to support clients created before a
+versioned alternative was introduced. Therefore, even though an unversioned controller
+method is considered a match for any version, it is in fact given the lowest priority,
+and is effectively superseded by any alternative controller method with a version.
 
 See xref:web/webflux-versioning.adoc[API Versioning] for more details on underlying
 infrastructure and support for API Versioning.
@@ -629,17 +580,16 @@ Kotlin::
 == `@HttpExchange`
 [.small]#xref:web/webmvc/mvc-controller/ann-requestmapping.adoc#mvc-ann-httpexchange-annotation[See equivalent in the Servlet stack]#
 
-While the main purpose of `@HttpExchange` is to abstract HTTP client code with a
-generated proxy, the
-xref:integration/rest-clients.adoc#rest-http-interface[HTTP Interface] on which
-such annotations are placed is a contract neutral to client vs server use.
-In addition to simplifying client code, there are also cases where an HTTP Interface
-may be a convenient way for servers to expose their API for client access. This leads
-to increased coupling between client and server and is often not a good choice,
-especially for public API's, but may be exactly the goal for an internal API.
-It is an approach commonly used in Spring Cloud, and it is why `@HttpExchange` is
-supported as an alternative to `@RequestMapping` for server side handling in
-controller classes.
+While the main purpose of `@HttpExchange` is for an HTTP Service
+xref:integration/rest-clients.adoc#rest-http-service-client[client with a generated proxy],
+the HTTP Service interface on which such annotations are placed is a contract neutral
+to client vs server use. In addition to simplifying client code, there are also cases
+where an HTTP Service interface may be a convenient way for servers to expose their
+API for client access. This leads to increased coupling between client and server and
+is often not a good choice, especially for public API's, but may be exactly the goal
+for an internal API. It is an approach commonly used in Spring Cloud, and it is why
+`@HttpExchange` is supported as an alternative to `@RequestMapping` for server side
+handling in controller classes.
 
 For example:
 
@@ -710,5 +660,5 @@ path, and content types.
 For method parameters and returns values, generally, `@HttpExchange` supports a
 subset of the method parameters that `@RequestMapping` does. Notably, it excludes any
 server-side specific parameter types. For details, see the list for
-xref:integration/rest-clients.adoc#rest-http-interface-method-parameters[@HttpExchange] and
+xref:integration/rest-clients.adoc#rest-http-service-client-method-parameters[@HttpExchange] and
 xref:web/webflux/controller/ann-methods/arguments.adoc[@RequestMapping].

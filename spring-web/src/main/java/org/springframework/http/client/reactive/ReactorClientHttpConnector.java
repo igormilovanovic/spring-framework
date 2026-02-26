@@ -26,6 +26,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jspecify.annotations.Nullable;
 import reactor.core.publisher.Mono;
+import reactor.netty.Connection;
 import reactor.netty.NettyOutbound;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.http.client.HttpClientRequest;
@@ -165,8 +166,10 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 		return requestSender
 				.send((request, outbound) -> requestCallback.apply(adaptRequest(method, uri, request, outbound)))
 				.responseConnection((response, connection) -> {
-					responseRef.set(new ReactorClientHttpResponse(response, connection));
-					return Mono.just((ClientHttpResponse) responseRef.get());
+					ReactorClientHttpResponse clientResponse = new ReactorClientHttpResponse(response, connection);
+					responseRef.set(clientResponse);
+					registerAttributeCallback(connection);
+					return Mono.just((ClientHttpResponse) clientResponse);
 				})
 				.next()
 				.doOnCancel(() -> {
@@ -193,6 +196,16 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 			NettyOutbound nettyOutbound) {
 
 		return new ReactorClientHttpRequest(method, uri, request, nettyOutbound);
+	}
+
+	private static void registerAttributeCallback(Connection connection) {
+		connection.onTerminate().subscribe(aVoid -> {},
+				ex -> clearAttribute(connection), () -> clearAttribute(connection));
+	}
+
+	private static void clearAttribute(Connection connection) {
+		// Deprecation note on remove method: consider using set(Object) (with value of null)
+		connection.channel().attr(ATTRIBUTES_KEY).set(null);
 	}
 
 

@@ -381,15 +381,22 @@ See the section on xref:web/webflux-cors.adoc[CORS] and the xref:web/webflux-cor
 You may want your controller endpoints to match routes with or without a trailing slash in the URL path.
 For example, both "GET /home" and "GET /home/" should be handled by a controller method annotated with `@GetMapping("/home")`.
 
-Adding trailing slash variants to all mapping declarations is not the best way to handle this use case.
-The `UrlHandlerFilter` web filter has been designed for this purpose. It can be configured to:
+Spring provides `UrlHandlerFilter` that removes the trailing slash from URL paths to ensure a consistent view of paths with or without a trailing slash.
+This is important to avoid a mismatch between URL-based authorization decisions and web framework request mappings.
+The filter can remove the trailing slash in one of a couple of ways:
 
-* respond with an HTTP redirect status when receiving URLs with trailing slashes, sending browsers to the non-trailing slash URL variant.
-* mutate the request to act as if the request was sent without a trailing slash and continue the processing of the request.
+* respond with an HTTP redirect status that sends clients to the same path without a trailing slash.
+* mutate the request to remove the trailing slash.
 
 Here is how you can instantiate and configure a `UrlHandlerFilter` for a blog application:
 
 include-code::./UrlHandlerFilterConfiguration[tag=config,indent=0]
+
+Keep in mind the following:
+
+- the root path `"/"` is excluded from trailing slash handling.
+- `@RequestMapping("/")` adds a trailing slash to a type-level mapping, and therefore will
+not map when trailing slash handling applies; use `@RequestMapping` (no path attribute) instead.
 
 
 [[webflux-exception-handler]]
@@ -459,22 +466,22 @@ xref:web/webflux/config.adoc#webflux-config-message-codecs[HTTP message codecs].
 JSON and binary JSON ({jackson-github-org}/smile-format-specification[Smile]) are
 both supported when the Jackson library is present.
 
-The `Jackson2Decoder` works as follows:
+The `JacksonJsonDecoder` works as follows:
 
 * Jackson's asynchronous, non-blocking parser is used to aggregate a stream of byte chunks
 into ``TokenBuffer``'s each representing a JSON object.
-* Each `TokenBuffer` is passed to Jackson's `ObjectMapper` to create a higher level object.
+* Each `TokenBuffer` is passed to Jackson's `JsonMapper` to create a higher level object.
 * When decoding to a single-value publisher (for example, `Mono`), there is one `TokenBuffer`.
 * When decoding to a multi-value publisher (for example, `Flux`), each `TokenBuffer` is passed to
-the `ObjectMapper` as soon as enough bytes are received for a fully formed object. The
+the `JsonMapper` as soon as enough bytes are received for a fully formed object. The
 input content can be a JSON array, or any
 https://en.wikipedia.org/wiki/JSON_streaming[line-delimited JSON] format such as NDJSON,
 JSON Lines, or JSON Text Sequences.
 
-The `Jackson2Encoder` works as follows:
+The `JacksonJsonEncoder` works as follows:
 
 * For a single value publisher (for example, `Mono`), simply serialize it through the
-`ObjectMapper`.
+`JsonMapper`.
 * For a multi-value publisher with `application/json`, by default collect the values with
 `Flux#collectToList()` and then serialize the resulting collection.
 * For a multi-value publisher with a streaming media type such as
@@ -482,12 +489,12 @@ The `Jackson2Encoder` works as follows:
 flush each value individually using a
 https://en.wikipedia.org/wiki/JSON_streaming[line-delimited JSON] format. Other
 streaming media types may be registered with the encoder.
-* For SSE the `Jackson2Encoder` is invoked per event and the output is flushed to ensure
+* For SSE the `JacksonJsonEncoder` is invoked per event and the output is flushed to ensure
 delivery without delay.
 
 [NOTE]
 ====
-By default both `Jackson2Encoder` and `Jackson2Decoder` do not support elements of type
+By default both `JacksonJsonEncoder` and `JacksonJsonDecoder` do not support elements of type
 `String`. Instead the default assumption is that a string or a sequence of strings
 represent serialized JSON content, to be rendered by the `CharSequenceEncoder`. If what
 you need is to render a JSON array from `Flux<String>`, use `Flux#collectToList()` and
@@ -544,6 +551,20 @@ This requires the "com.google.protobuf:protobuf-java" library, version 3.29 and 
 The `ProtobufJsonDecoder` and `ProtobufJsonEncoder` variants support reading and writing JSON documents to and from Protobuf messages.
 They require the "com.google.protobuf:protobuf-java-util" dependency. Note, the JSON variants do not support reading stream of messages,
 see the {spring-framework-api}/http/codec/protobuf/ProtobufJsonDecoder.html[javadoc of `ProtobufJsonDecoder`] for more details.
+
+[[webflux-codecs-gson]]
+=== Google Gson
+
+Applications can use the `GsonEncoder` and `GsonDecoder` to serialize and deserialize JSON documents thanks to the https://google.github.io/gson/[Google Gson] library .
+This codec supports both JSON media types and the NDJSON format for streaming.
+
+[NOTE]
+====
+`Gson` does not support non-blocking parsing, so the `GsonDecoder` does not support deserializing
+to `Flux<*>` types. For example, if this decoder is used for deserializing a JSON stream or even a list of elements
+as a `Flux<*>`, an `UnsupportedOperationException` will be thrown at runtime.
+Applications should instead focus on deserializing bounded collections and use `Mono<List<*>>` as target types.
+====
 
 [[webflux-codecs-limits]]
 === Limits
@@ -644,7 +665,6 @@ Java::
 [source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
-	@EnableWebFlux
 	class MyConfig implements WebFluxConfigurer {
 
 		@Override
@@ -659,7 +679,6 @@ Kotlin::
 [source,kotlin,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
-	@EnableWebFlux
 	class MyConfig : WebFluxConfigurer {
 
 		override fun configureHttpMessageCodecs(configurer: ServerCodecConfigurer) {

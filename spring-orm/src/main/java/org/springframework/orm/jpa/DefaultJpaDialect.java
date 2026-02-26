@@ -18,6 +18,7 @@ package org.springframework.orm.jpa;
 
 import java.io.Serializable;
 import java.sql.SQLException;
+import java.util.Map;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
@@ -59,11 +60,16 @@ public class DefaultJpaDialect implements JpaDialect, Serializable {
 	public @Nullable Object beginTransaction(EntityManager entityManager, TransactionDefinition definition)
 			throws PersistenceException, SQLException, TransactionException {
 
+		if (definition.getTimeout() != TransactionDefinition.TIMEOUT_DEFAULT) {
+			entityManager.getTransaction().setTimeout(definition.getTimeout());
+		}
+
 		if (definition.getIsolationLevel() != TransactionDefinition.ISOLATION_DEFAULT) {
 			throw new InvalidIsolationLevelException(getClass().getSimpleName() +
 					" does not support custom isolation levels due to limitations in standard JPA. " +
 					"Specific arrangements may be implemented in custom JpaDialect variants.");
 		}
+
 		entityManager.getTransaction().begin();
 		return null;
 	}
@@ -106,6 +112,27 @@ public class DefaultJpaDialect implements JpaDialect, Serializable {
 	@Override
 	public void releaseJdbcConnection(ConnectionHandle conHandle, EntityManager em)
 			throws PersistenceException, SQLException {
+	}
+
+	/**
+	 * Derive a new {@code EntityAgent} from the given {@code EntityManager} if possible,
+	 * sharing the transactional context.
+	 * <p><b>NOTE: This method is designed for Spring's early JPA 4.0 support.</b>
+	 * For JPA 3.2 compatibility, the return type cannot be enforced as
+	 * {@code jakarta.persistence.EntityAgent}. Subclasses should override it with
+	 * their specific EntityAgent type if possible, or otherwise just EntityAgent,
+	 * as a covariant return type. This will make it forward-compatible with a
+	 * future variant of this method in the {@link JpaDialect} interface itself.
+	 * @param entityManager the current JPA EntityManager
+	 * @param properties the properties for the EntityAgent, if any
+	 * @return the new EntityAgent instance, or {@code null} if none can be derived
+	 * @throws jakarta.persistence.PersistenceException if thrown by JPA methods
+	 * @since 7.0.4
+	 */
+	public @Nullable Object deriveEntityAgent(EntityManager entityManager, @Nullable Map<?, ?> properties)
+			throws PersistenceException {
+
+		return null;
 	}
 
 

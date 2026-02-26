@@ -32,9 +32,10 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.MultiValueMap;
 
 /**
- * {@code HttpHeaders} object that can only be read, not written to.
- * <p>This caches the parsed representations of the "Accept" and "Content-Type" headers
- * and will get out of sync with the backing map it is mutated at runtime.
+ * {@code HttpHeaders} variant that can only be read, not written to.
+ *
+ * <p>This caches the parsed representations of the "Accept" and "Content-Type"
+ * headers and will get out of sync with the backing map if it is mutated at runtime.
  *
  * @author Brian Clozel
  * @author Sam Brannen
@@ -44,10 +45,12 @@ class ReadOnlyHttpHeaders extends HttpHeaders {
 
 	private static final long serialVersionUID = -8578554704772377436L;
 
+
 	private @Nullable MediaType cachedContentType;
 
 	@SuppressWarnings("serial")
 	private @Nullable List<MediaType> cachedAccept;
+
 
 	ReadOnlyHttpHeaders(MultiValueMap<String, String> headers) {
 		super(headers);
@@ -138,7 +141,6 @@ class ReadOnlyHttpHeaders extends HttpHeaders {
 		return Collections.unmodifiableSet(super.headerNames());
 	}
 
-
 	@Override
 	public List<String> put(String key, List<String> value) {
 		throw new UnsupportedOperationException();
@@ -179,7 +181,10 @@ class ReadOnlyHttpHeaders extends HttpHeaders {
 
 	@Override
 	public void forEach(BiConsumer<? super String, ? super List<String>> action) {
-		this.headers.forEach((k, vs) -> action.accept(k, Collections.unmodifiableList(vs)));
+		for (String name : this.headers.keySet()) {
+			List<String> values = this.headers.get(name);
+			action.accept(name, (values != null ? Collections.unmodifiableList(values) : Collections.emptyList()));
+		}
 	}
 
 }

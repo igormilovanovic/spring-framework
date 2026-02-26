@@ -33,6 +33,7 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -549,7 +550,7 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 		}
 
 		final List<InjectionMetadata.InjectedElement> elements = new ArrayList<>();
-		Class<?> targetClass = clazz;
+		Class<?> targetClass = ClassUtils.getUserClass(clazz);
 
 		do {
 			final List<InjectionMetadata.InjectedElement> fieldElements = new ArrayList<>();
@@ -569,12 +570,11 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 
 			final List<InjectionMetadata.InjectedElement> methodElements = new ArrayList<>();
 			ReflectionUtils.doWithLocalMethods(targetClass, method -> {
-				Method bridgedMethod = BridgeMethodResolver.findBridgedMethod(method);
-				if (!BridgeMethodResolver.isVisibilityBridgeMethodPair(method, bridgedMethod)) {
+				if (method.isBridge()) {
 					return;
 				}
-				MergedAnnotation<?> ann = findAutowiredAnnotation(bridgedMethod);
-				if (ann != null && method.equals(ClassUtils.getMostSpecificMethod(method, clazz))) {
+				MergedAnnotation<?> ann = findAutowiredAnnotation(method);
+				if (ann != null && method.equals(BridgeMethodResolver.getMostSpecificMethod(method, clazz))) {
 					if (Modifier.isStatic(method.getModifiers())) {
 						if (logger.isInfoEnabled()) {
 							logger.info("Autowired annotation is not supported on static methods: " + method);
@@ -592,7 +592,7 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 						}
 					}
 					boolean required = determineRequiredStatus(ann);
-					PropertyDescriptor pd = BeanUtils.findPropertyForMethod(bridgedMethod, clazz);
+					PropertyDescriptor pd = BeanUtils.findPropertyForMethod(method, clazz);
 					methodElements.add(new AutowiredMethodElement(method, required, pd));
 				}
 			});
@@ -622,12 +622,12 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 	 * <p>A 'required' dependency means that autowiring should fail when no beans
 	 * are found. Otherwise, the autowiring process will simply bypass the field
 	 * or method when no beans are found.
-	 * @param ann the Autowired annotation
+	 * @param ann a {@link MergedAnnotation} representing the Autowired annotation
 	 * @return whether the annotation indicates that a dependency is required
 	 */
 	protected boolean determineRequiredStatus(MergedAnnotation<?> ann) {
-		return (ann.getValue(this.requiredParameterName).isEmpty() ||
-				this.requiredParameterValue == ann.getBoolean(this.requiredParameterName));
+		Optional<Boolean> requiredAttribute = ann.getValue(this.requiredParameterName, Boolean.class);
+		return (requiredAttribute.isEmpty() || this.requiredParameterValue == requiredAttribute.get());
 	}
 
 	/**

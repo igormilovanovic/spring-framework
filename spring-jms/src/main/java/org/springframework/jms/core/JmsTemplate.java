@@ -60,7 +60,7 @@ import org.springframework.util.ClassUtils;
  * the "sessionTransacted" and "sessionAcknowledgeMode" bean properties.
  *
  * <p>This template uses a
- * {@link org.springframework.jms.support.destination.DynamicDestinationResolver}
+ * {@link org.springframework.jms.support.destination.SimpleDestinationResolver}
  * and a {@link org.springframework.jms.support.converter.SimpleMessageConverter}
  * as default strategies for resolving a destination name or converting a message,
  * respectively. These defaults can be overridden through the "destinationResolver"
@@ -94,7 +94,7 @@ import org.springframework.util.ClassUtils;
  */
 public class JmsTemplate extends JmsDestinationAccessor implements JmsOperations {
 
-	private static final boolean micrometerJakartaPresent = ClassUtils.isPresent(
+	private static final boolean MICROMETER_JAKARTA_PRESENT = ClassUtils.isPresent(
 			"io.micrometer.jakarta9.instrument.jms.JmsInstrumentation", JmsTemplate.class.getClassLoader());
 
 	/** Internal ResourceFactory adapter for interacting with ConnectionFactoryUtils. */
@@ -530,7 +530,7 @@ public class JmsTemplate extends JmsDestinationAccessor implements JmsOperations
 			if (logger.isDebugEnabled()) {
 				logger.debug("Executing callback on JMS Session: " + sessionToUse);
 			}
-			if (micrometerJakartaPresent && this.observationRegistry != null) {
+			if (MICROMETER_JAKARTA_PRESENT && this.observationRegistry != null) {
 				sessionToUse = MicrometerInstrumentation.instrumentSession(sessionToUse, this.observationRegistry);
 			}
 			return action.doInJms(sessionToUse);
@@ -906,37 +906,78 @@ public class JmsTemplate extends JmsDestinationAccessor implements JmsOperations
 		}, true);
 	}
 
+	@Override
+	public @Nullable Message sendAndReceive(Destination destination, Destination responseQueue, MessageCreator messageCreator) throws JmsException {
+		return executeLocal(session -> doSendAndReceive(session, destination, responseQueue, messageCreator, true), true);
+	}
+
+	@Override
+	public @Nullable Message sendAndReceive(String destinationName, String responseQueueName, MessageCreator messageCreator) throws JmsException {
+		return executeLocal(session -> {
+			Destination destination = resolveDestinationName(session, destinationName);
+			Destination responseQueue = resolveDestinationName(session, responseQueueName);
+			return doSendAndReceive(session, destination, responseQueue, messageCreator, true);
+		}, true);
+	}
+
 	/**
-	 * Send a request message to the given {@link Destination} and block until
+	 * Send a request message to the given {@link Destination destination} and block until
 	 * a reply has been received on a temporary queue created on-the-fly.
-	 * <p>Return the response message or {@code null} if no message has
+	 * <p>Return the response message or {@code null} if no message has been received.
 	 * @throws JMSException if thrown by JMS API methods
 	 */
 	protected @Nullable Message doSendAndReceive(Session session, Destination destination, MessageCreator messageCreator)
 			throws JMSException {
 
-		Assert.notNull(messageCreator, "MessageCreator must not be null");
 		TemporaryQueue responseQueue = null;
+		try {
+			responseQueue = session.createTemporaryQueue();
+			return doSendAndReceive(session, destination, responseQueue, messageCreator, false);
+		}
+		finally {
+			if (responseQueue != null) {
+				responseQueue.delete();
+			}
+		}
+	}
+
+	/**
+	 * Send a request message to the given {@link Destination destination} and block until
+	 * a reply has been received on the specified {@link Destination responseQueue}.
+	 * <p>Return the response message or {@code null} if no message has been received.
+	 * @throws JMSException if thrown by JMS API methods
+	 * @since 7.0.4
+	 */
+	protected @Nullable Message doSendAndReceive(Session session, Destination destination, Destination responseQueue,
+			MessageCreator messageCreator, boolean useCorrelationId) throws JMSException {
+
+		Assert.notNull(messageCreator, "MessageCreator must not be null");
 		MessageProducer producer = null;
 		MessageConsumer consumer = null;
 		try {
 			Message requestMessage = messageCreator.createMessage(session);
-			responseQueue = session.createTemporaryQueue();
 			producer = session.createProducer(destination);
-			consumer = session.createConsumer(responseQueue);
+			if (!useCorrelationId) {
+				consumer = session.createConsumer(responseQueue);
+			}
 			requestMessage.setJMSReplyTo(responseQueue);
 			if (logger.isDebugEnabled()) {
 				logger.debug("Sending created message: " + requestMessage);
 			}
 			doSend(producer, requestMessage);
+			if (consumer == null) {  // useCorrelationId=true
+				String correlationId = requestMessage.getJMSCorrelationID();
+				if (correlationId == null) {
+					correlationId = requestMessage.getJMSMessageID();
+				}
+				String messageSelector = "JMSCorrelationID='" + correlationId + "'";
+				consumer = session.createConsumer(responseQueue, messageSelector);
+			}
 			return receiveFromConsumer(consumer, getReceiveTimeout());
 		}
 		finally {
 			JmsUtils.closeMessageConsumer(consumer);
 			JmsUtils.closeMessageProducer(producer);
-			if (responseQueue != null) {
-				responseQueue.delete();
-			}
 		}
 	}
 
@@ -952,7 +993,7 @@ public class JmsTemplate extends JmsDestinationAccessor implements JmsOperations
 		try {
 			con = createConnection();
 			session = con.createSession(false, Session.AUTO_ACKNOWLEDGE);
-			if (micrometerJakartaPresent && this.observationRegistry != null) {
+			if (MICROMETER_JAKARTA_PRESENT && this.observationRegistry != null) {
 				session = MicrometerInstrumentation.instrumentSession(session, this.observationRegistry);
 			}
 			if (startConnection) {

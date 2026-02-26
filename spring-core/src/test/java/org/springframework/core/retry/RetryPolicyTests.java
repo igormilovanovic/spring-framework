@@ -64,15 +64,15 @@ class RetryPolicyTests {
 		}
 
 		@Test
-		void withMaxAttemptsPreconditions() {
+		void withMaxRetriesPreconditions() {
 			assertThatIllegalArgumentException()
-					.isThrownBy(() -> RetryPolicy.withMaxAttempts(-1))
-					.withMessageStartingWith("Invalid maxAttempts (-1)");
+					.isThrownBy(() -> RetryPolicy.withMaxRetries(-1))
+					.withMessageStartingWith("Invalid maxRetries (-1)");
 		}
 
 		@Test
-		void withMaxAttempts() {
-			var policy = RetryPolicy.withMaxAttempts(5);
+		void withMaxRetries() {
+			var policy = RetryPolicy.withMaxRetries(5);
 
 			assertThat(policy.shouldRetry(new AssertionError())).isTrue();
 			assertThat(policy.shouldRetry(new IOException())).isTrue();
@@ -96,7 +96,7 @@ class RetryPolicyTests {
 					.isThrownBy(() -> RetryPolicy.builder().backOff(mock()).delay(Duration.ofMillis(10)).build())
 					.withMessage("""
 							The following configuration options are not supported with a custom BackOff strategy: \
-							maxAttempts, delay, jitter, multiplier, or maxDelay.""");
+							maxRetries, delay, jitter, multiplier, or maxDelay.""");
 		}
 
 		@Test
@@ -111,15 +111,15 @@ class RetryPolicyTests {
 		}
 
 		@Test
-		void maxAttemptsPreconditions() {
+		void maxRetriesPreconditions() {
 			assertThatIllegalArgumentException()
-					.isThrownBy(() -> RetryPolicy.builder().maxAttempts(-1))
-					.withMessageStartingWith("Invalid maxAttempts (-1)");
+					.isThrownBy(() -> RetryPolicy.builder().maxRetries(-1))
+					.withMessageStartingWith("Invalid maxRetries (-1)");
 		}
 
 		@Test
-		void maxAttempts() {
-			var policy = RetryPolicy.builder().maxAttempts(5).build();
+		void maxRetries() {
+			var policy = RetryPolicy.builder().maxRetries(5).build();
 
 			assertThat(policy.getBackOff())
 					.asInstanceOf(type(ExponentialBackOff.class))
@@ -129,6 +129,22 @@ class RetryPolicyTests {
 					});
 
 			assertToString(policy, 1000, 0, 1.0, Long.MAX_VALUE, 5);
+		}
+
+		@Test
+		void timeoutPreconditions() {
+			assertThatIllegalArgumentException()
+					.isThrownBy(() -> RetryPolicy.builder().timeout(Duration.ofMillis(-1)))
+					.withMessage("Invalid timeout (-1ms): must be greater than or equal to zero.");
+		}
+
+		@Test
+		void timeout() {
+			Duration timeout = Duration.ofMillis(42);
+
+			var policy = RetryPolicy.builder().timeout(timeout).build();
+
+			assertThat(policy.getTimeout()).isSameAs(timeout);
 		}
 
 		@Test

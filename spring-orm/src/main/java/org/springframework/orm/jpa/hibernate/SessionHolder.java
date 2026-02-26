@@ -37,9 +37,7 @@ import org.springframework.util.Assert;
  * @since 7.0
  * @see HibernateTransactionManager
  */
-class SessionHolder extends EntityManagerHolder {
-
-	private @Nullable StatelessSession statelessSession;
+public class SessionHolder extends EntityManagerHolder {
 
 	private @Nullable Transaction transaction;
 
@@ -50,13 +48,13 @@ class SessionHolder extends EntityManagerHolder {
 		super(session);
 	}
 
-	public SessionHolder(StatelessSession session) {
+	SessionHolder(StatelessSession session) {
 		super(null);
-		this.statelessSession = session;
+		setStatelessSession(session);
 	}
 
 
-	public void setSession(Session session) {
+	void setSession(Session session) {
 		this.entityManager = session;
 	}
 
@@ -64,37 +62,37 @@ class SessionHolder extends EntityManagerHolder {
 		return (Session) getEntityManager();
 	}
 
-	public boolean hasSession() {
+	boolean hasSession() {
 		return (this.entityManager != null);
 	}
 
-	public void setStatelessSession(StatelessSession statelessSession) {
-		this.statelessSession = statelessSession;
+	void setStatelessSession(StatelessSession statelessSession) {
+		this.entityAgent = statelessSession;
 	}
 
-	public StatelessSession getStatelessSession() {
-		Assert.state(this.statelessSession != null, "No StatelessSession available");
-		return this.statelessSession;
+	StatelessSession getStatelessSession() {
+		Assert.state(this.entityAgent != null, "No StatelessSession available");
+		return (StatelessSession) this.entityAgent;
 	}
 
-	public boolean hasStatelessSession() {
-		return (this.statelessSession != null);
+	boolean hasStatelessSession() {
+		return (this.entityAgent != null);
 	}
 
-	public void setTransaction(@Nullable Transaction transaction) {
+	void setTransaction(@Nullable Transaction transaction) {
 		this.transaction = transaction;
 		setTransactionActive(transaction != null);
 	}
 
-	public @Nullable Transaction getTransaction() {
+	@Nullable Transaction getTransaction() {
 		return this.transaction;
 	}
 
-	public void setPreviousFlushMode(@Nullable FlushMode previousFlushMode) {
+	void setPreviousFlushMode(@Nullable FlushMode previousFlushMode) {
 		this.previousFlushMode = previousFlushMode;
 	}
 
-	public @Nullable FlushMode getPreviousFlushMode() {
+	@Nullable FlushMode getPreviousFlushMode() {
 		return this.previousFlushMode;
 	}
 
@@ -109,9 +107,6 @@ class SessionHolder extends EntityManagerHolder {
 	@Override
 	protected void closeAll() {
 		super.closeAll();
-		if (this.statelessSession != null && this.statelessSession.isOpen()) {
-			this.statelessSession.close();
-		}
 	}
 
 }

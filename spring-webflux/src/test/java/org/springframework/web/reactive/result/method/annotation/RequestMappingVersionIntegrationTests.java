@@ -18,18 +18,23 @@ package org.springframework.web.reactive.result.method.annotation;
 
 import java.net.URI;
 
+import org.junit.jupiter.api.Test;
+
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.accept.SemanticApiVersionParser.Version;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.reactive.accept.StandardApiVersionDeprecationHandler;
 import org.springframework.web.reactive.config.ApiVersionConfigurer;
 import org.springframework.web.reactive.config.EnableWebFlux;
+import org.springframework.web.reactive.config.ResourceHandlerRegistry;
 import org.springframework.web.reactive.config.WebFluxConfigurer;
 import org.springframework.web.testfixture.http.server.reactive.bootstrap.HttpServer;
+import org.springframework.web.testfixture.http.server.reactive.bootstrap.TomcatHttpServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,10 +47,7 @@ public class RequestMappingVersionIntegrationTests extends AbstractRequestMappin
 
 	@Override
 	protected ApplicationContext initApplicationContext() {
-		AnnotationConfigApplicationContext wac = new AnnotationConfigApplicationContext();
-		wac.register(WebConfig.class, TestController.class);
-		wac.refresh();
-		return wac;
+		return new AnnotationConfigApplicationContext(WebConfig.class, TestController.class);
 	}
 
 
@@ -72,9 +74,20 @@ public class RequestMappingVersionIntegrationTests extends AbstractRequestMappin
 				.isEqualTo("<https://example.org/deprecation>; rel=\"deprecation\"; type=\"text/html\"");
 	}
 
+	@Test  // gh-36059
+	void staticResourceWithInvalidApiVersion() throws Exception {
+		startServer(new TomcatHttpServer());
+
+		String url = "http://localhost:" + this.port + "/cp/test/foo.css";
+		RequestEntity<Void> requestEntity = RequestEntity.get(url).header("API-Version", "Invalid").build();
+		ResponseEntity<String> entity = getRestTemplate().exchange(requestEntity, String.class);
+
+		assertThat(entity.getBody()).isEqualTo("h1 { color:red; }");
+	}
+
 	private ResponseEntity<String> exchangeWithVersion(String version) {
 		String url = "http://localhost:" + this.port;
-		RequestEntity<Void> requestEntity = RequestEntity.get(url).header("X-API-Version", version).build();
+		RequestEntity<Void> requestEntity = RequestEntity.get(url).header("API-Version", version).build();
 		return getRestTemplate().exchange(requestEntity, String.class);
 	}
 
@@ -88,9 +101,15 @@ public class RequestMappingVersionIntegrationTests extends AbstractRequestMappin
 			StandardApiVersionDeprecationHandler handler = new StandardApiVersionDeprecationHandler();
 			handler.configureVersion("1").setDeprecationLink(URI.create("https://example.org/deprecation"));
 
-			configurer.useRequestHeader("X-API-Version")
+			configurer.useRequestHeader("API-Version")
 					.addSupportedVersions("1", "1.1", "1.3", "1.6")
 					.setDeprecationHandler(handler);
+		}
+
+		@Override
+		public void addResourceHandlers(ResourceHandlerRegistry registry) {
+			registry.addResourceHandler("/cp/**")
+					.addResourceLocations("classpath:org/springframework/web/reactive/resource/");
 		}
 	}
 
@@ -104,7 +123,8 @@ public class RequestMappingVersionIntegrationTests extends AbstractRequestMappin
 		}
 
 		@GetMapping(version = "1.2+")
-		String version1_2() {
+		String version1_2(Version version) {
+			assertThat(version).isNotNull();
 			return getBody("1.2");
 		}
 

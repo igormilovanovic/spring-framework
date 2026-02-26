@@ -50,13 +50,17 @@ public abstract class AbstractCachingConfiguration implements ImportAware {
 
 	protected @Nullable AnnotationAttributes enableCaching;
 
-	protected @Nullable Supplier<@Nullable CacheManager> cacheManager;
+	@SuppressWarnings("NullAway.Init")
+	protected Supplier<@Nullable CacheManager> cacheManager;
 
-	protected @Nullable Supplier<@Nullable CacheResolver> cacheResolver;
+	@SuppressWarnings("NullAway.Init")
+	protected Supplier<@Nullable CacheResolver> cacheResolver;
 
-	protected @Nullable Supplier<@Nullable KeyGenerator> keyGenerator;
+	@SuppressWarnings("NullAway.Init")
+	protected Supplier<@Nullable KeyGenerator> keyGenerator;
 
-	protected @Nullable Supplier<@Nullable CacheErrorHandler> errorHandler;
+	@SuppressWarnings("NullAway.Init")
+	protected Supplier<@Nullable CacheErrorHandler> errorHandler;
 
 
 	@Override
@@ -90,7 +94,6 @@ public abstract class AbstractCachingConfiguration implements ImportAware {
 	/**
 	 * Extract the configuration from the nominated {@link CachingConfigurer}.
 	 */
-	@SuppressWarnings("NullAway") // https://github.com/uber/NullAway/issues/1128
 	protected void useCachingConfigurer(CachingConfigurerSupplier cachingConfigurerSupplier) {
 		this.cacheManager = cachingConfigurerSupplier.adapt(CachingConfigurer::cacheManager);
 		this.cacheResolver = cachingConfigurerSupplier.adapt(CachingConfigurer::cacheResolver);
@@ -101,7 +104,7 @@ public abstract class AbstractCachingConfiguration implements ImportAware {
 
 	protected static class CachingConfigurerSupplier {
 
-		private final SingletonSupplier<CachingConfigurer> supplier;
+		private final SingletonSupplier<@Nullable CachingConfigurer> supplier;
 
 		public CachingConfigurerSupplier(Supplier<@Nullable CachingConfigurer> supplier) {
 			this.supplier = SingletonSupplier.ofNullable(supplier);

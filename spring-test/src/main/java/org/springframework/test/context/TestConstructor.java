@@ -61,6 +61,7 @@ import org.jspecify.annotations.Nullable;
  * @see org.springframework.beans.factory.annotation.Autowired @Autowired
  * @see jakarta.inject.Inject @jakarta.inject.Inject
  * @see org.springframework.test.context.junit.jupiter.SpringExtension SpringExtension
+ * @see org.springframework.test.context.junit.jupiter.SpringExtensionConfig @SpringExtensionConfig
  * @see org.springframework.test.context.junit.jupiter.SpringJUnitConfig @SpringJUnitConfig
  * @see org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig @SpringJUnitWebConfig
  * @see ContextConfiguration @ContextConfiguration
@@ -88,7 +89,7 @@ public @interface TestConstructor {
 	 * {@link org.springframework.core.SpringProperties SpringProperties}
 	 * mechanism.
 	 * <p>This property may also be configured as a
-	 * <a href="https://junit.org/junit5/docs/current/user-guide/#running-tests-config-params">JUnit
+	 * <a href="https://docs.junit.org/current/running-tests/configuration-parameters.html">JUnit
 	 * Platform configuration parameter</a>.
 	 * @see #autowireMode
 	 */

@@ -264,16 +264,12 @@ public abstract class AbstractJacksonHttpMessageConverter<T extends ObjectMapper
 		if (!canRead(mediaType)) {
 			return false;
 		}
-		Class<?> clazz = type.resolve();
-		if (clazz == null) {
-			return false;
-		}
-		return this.mapperRegistrations == null || selectMapper(clazz, mediaType) != null;
+		return this.mapperRegistrations == null || selectMapper(type.toClass(), mediaType) != null;
 	}
 
 	@Override
 	@SuppressWarnings("removal")
-	public boolean canWrite(Class<?> clazz, @Nullable MediaType mediaType) {
+	public boolean canWrite(ResolvableType type, Class<?> valueClass, @Nullable MediaType mediaType) {
 		if (!canWrite(mediaType)) {
 			return false;
 		}
@@ -283,10 +279,10 @@ public abstract class AbstractJacksonHttpMessageConverter<T extends ObjectMapper
 				return false;
 			}
 		}
-		if (MappingJacksonValue.class.isAssignableFrom(clazz)) {
+		if (MappingJacksonValue.class.isAssignableFrom(valueClass)) {
 			throw new UnsupportedOperationException("MappingJacksonValue is not supported, use hints instead");
 		}
-		return this.mapperRegistrations == null || selectMapper(clazz, mediaType) != null;
+		return this.mapperRegistrations == null || selectMapper(valueClass, mediaType) != null;
 	}
 
 	/**
@@ -317,7 +313,8 @@ public abstract class AbstractJacksonHttpMessageConverter<T extends ObjectMapper
 	public Object read(ResolvableType type, HttpInputMessage inputMessage, @Nullable Map<String, Object> hints)
 			throws IOException, HttpMessageNotReadableException {
 
-		Class<?> contextClass = (type.getSource() instanceof MethodParameter parameter ? parameter.getContainingClass() : null);
+		Class<?> contextClass = (type.getSource() instanceof MethodParameter parameter ? parameter.getContainingClass() :
+				(hints != null ? (Class<?>) hints.get("contextClass") : null));
 		JavaType javaType = getJavaType(type.getType(), contextClass);
 		return readJavaType(javaType, inputMessage, hints);
 	}

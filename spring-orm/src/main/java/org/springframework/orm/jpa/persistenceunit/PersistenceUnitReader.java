@@ -26,9 +26,10 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+import jakarta.persistence.FetchType;
+import jakarta.persistence.PersistenceUnitTransactionType;
 import jakarta.persistence.SharedCacheMode;
 import jakarta.persistence.ValidationMode;
-import jakarta.persistence.spi.PersistenceUnitTransactionType;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jspecify.annotations.Nullable;
@@ -84,6 +85,8 @@ final class PersistenceUnitReader {
 	private static final String SHARED_CACHE_MODE = "shared-cache-mode";
 
 	private static final String VALIDATION_MODE = "validation-mode";
+
+	private static final String DEFAULT_TO_ONE_FETCH_TYPE = "default-to-one-fetch-type";
 
 	private static final String PROPERTIES = "properties";
 
@@ -189,7 +192,6 @@ final class PersistenceUnitReader {
 	/**
 	 * Parse the unit info DOM element.
 	 */
-	@SuppressWarnings("removal")
 	SpringPersistenceUnitInfo parsePersistenceUnitInfo(
 			Element persistenceUnit, String version, @Nullable URL rootUrl) throws IOException {
 
@@ -250,6 +252,12 @@ final class PersistenceUnitReader {
 		String validationMode = DomUtils.getChildElementValueByTagName(persistenceUnit, VALIDATION_MODE);
 		if (StringUtils.hasText(validationMode)) {
 			unitInfo.setValidationMode(ValidationMode.valueOf(validationMode));
+		}
+
+		// set JPA 4.0 default fetch type
+		String fetchType = DomUtils.getChildElementValueByTagName(persistenceUnit, DEFAULT_TO_ONE_FETCH_TYPE);
+		if (StringUtils.hasText(fetchType)) {
+			unitInfo.setDefaultToOneFetchType(FetchType.valueOf(fetchType));
 		}
 
 		parseQualifiers(persistenceUnit, unitInfo);

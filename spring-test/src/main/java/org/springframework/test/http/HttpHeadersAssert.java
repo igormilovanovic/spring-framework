@@ -17,8 +17,7 @@
 package org.springframework.test.http;
 
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collection;
@@ -42,16 +41,15 @@ import org.springframework.http.HttpHeaders;
  */
 public class HttpHeadersAssert extends AbstractObjectAssert<HttpHeadersAssert, HttpHeaders> {
 
-	private static final ZoneId GMT = ZoneId.of("GMT");
-
-
 	private final AbstractCollectionAssert<?, Collection<? extends String>, String, ObjectAssert<String>> namesAssert;
 
 
 	public HttpHeadersAssert(HttpHeaders actual) {
 		super(actual, HttpHeadersAssert.class);
 		as("HTTP headers");
+		// Use case-insensitive comparator until https://github.com/assertj/assertj/issues/4157
 		this.namesAssert = Assertions.assertThat(actual.headerNames())
+				.usingElementComparator(String.CASE_INSENSITIVE_ORDER)
 				.as("HTTP header names");
 	}
 
@@ -173,7 +171,7 @@ public class HttpHeadersAssert extends AbstractObjectAssert<HttpHeadersAssert, H
 		containsHeader(name);
 		Assertions.assertThat(this.actual.getFirstZonedDateTime(name))
 				.as("check primary date value for HTTP header '%s'", name)
-				.isCloseTo(ZonedDateTime.ofInstant(value, GMT), Assertions.within(999, ChronoUnit.MILLIS));
+				.isCloseTo(value.atZone(ZoneOffset.UTC), Assertions.within(999, ChronoUnit.MILLIS));
 		return this.myself;
 	}
 

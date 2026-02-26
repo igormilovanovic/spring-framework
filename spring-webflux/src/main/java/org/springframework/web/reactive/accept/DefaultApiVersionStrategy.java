@@ -23,6 +23,8 @@ import java.util.TreeSet;
 import java.util.function.Predicate;
 
 import org.jspecify.annotations.Nullable;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.util.Assert;
 import org.springframework.web.accept.ApiVersionParser;
@@ -92,6 +94,10 @@ public class DefaultApiVersionStrategy implements ApiVersionStrategy {
 		this.detectSupportedVersions = detectSupportedVersions;
 		this.supportedVersionPredicate = initSupportedVersionPredicate(supportedVersionPredicate);
 		this.deprecationHandler = deprecationHandler;
+
+		if (defaultVersion != null) {
+			addSupportedVersion(defaultVersion);
+		}
 	}
 
 	private Predicate<Comparable<?>> initSupportedVersionPredicate(@Nullable Predicate<Comparable<?>> predicate) {
@@ -148,6 +154,7 @@ public class DefaultApiVersionStrategy implements ApiVersionStrategy {
 		}
 	}
 
+	@SuppressWarnings("removal")
 	@Override
 	public @Nullable String resolveVersion(ServerWebExchange exchange) {
 		for (ApiVersionResolver resolver : this.versionResolvers) {
@@ -160,10 +167,20 @@ public class DefaultApiVersionStrategy implements ApiVersionStrategy {
 	}
 
 	@Override
+	public Mono<String> resolveApiVersion(ServerWebExchange exchange) {
+		return Flux.fromIterable(this.versionResolvers)
+				.flatMap(resolver -> resolver instanceof AsyncApiVersionResolver asyncResolver ?
+						asyncResolver.resolveVersionAsync(exchange) :
+						Mono.justOrEmpty(resolver.resolveVersion(exchange)))
+				.next();
+	}
+
+	@Override
 	public Comparable<?> parseVersion(String version) {
 		return this.versionParser.parseVersion(version);
 	}
 
+	@Override
 	public void validateVersion(@Nullable Comparable<?> requestVersion, ServerWebExchange exchange)
 			throws MissingApiVersionException, InvalidApiVersionException {
 
@@ -180,9 +197,9 @@ public class DefaultApiVersionStrategy implements ApiVersionStrategy {
 	}
 
 	@Override
-	public void handleDeprecations(Comparable<?> version, ServerWebExchange exchange) {
+	public void handleDeprecations(Comparable<?> version, Object handler, ServerWebExchange exchange) {
 		if (this.deprecationHandler != null) {
-			this.deprecationHandler.handleVersion(version, exchange);
+			this.deprecationHandler.handleVersion(version, handler, exchange);
 		}
 	}
 

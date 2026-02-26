@@ -19,6 +19,7 @@ package org.springframework.http.client;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PushbackInputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -43,6 +44,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 
@@ -59,6 +61,7 @@ import org.springframework.util.StringUtils;
  *
  * @author Marten Deinum
  * @author Arjen Poutsma
+ * @author Brian Clozel
  * @since 6.1
  */
 class JdkClientHttpRequest extends AbstractStreamingClientHttpRequest {
@@ -113,16 +116,15 @@ class JdkClientHttpRequest extends AbstractStreamingClientHttpRequest {
 		try {
 			HttpRequest request = buildRequest(headers, body);
 			responseFuture = this.httpClient.sendAsync(request, this.compression ? new DecompressingBodyHandler() : HttpResponse.BodyHandlers.ofInputStream());
-
 			if (this.timeout != null) {
 				timeoutHandler = new TimeoutHandler(responseFuture, this.timeout);
 				HttpResponse<InputStream> response = responseFuture.get();
 				InputStream inputStream = timeoutHandler.wrapInputStream(response);
-				return new JdkClientHttpResponse(response, inputStream);
+				return new JdkClientHttpResponse(response, processResponseHeaders(), inputStream);
 			}
 			else {
 				HttpResponse<InputStream> response = responseFuture.get();
-				return new JdkClientHttpResponse(response, response.body());
+				return new JdkClientHttpResponse(response, processResponseHeaders(), response.body());
 			}
 		}
 		catch (InterruptedException ex) {
@@ -173,7 +175,7 @@ class JdkClientHttpRequest extends AbstractStreamingClientHttpRequest {
 		headers.forEach((headerName, headerValues) -> {
 			if (!DISALLOWED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT))) {
 				for (String headerValue : headerValues) {
-					builder.header(headerName, headerValue);
+					builder.header(headerName, (headerValue != null) ? headerValue : "");
 				}
 			}
 		});
@@ -231,6 +233,19 @@ class JdkClientHttpRequest extends AbstractStreamingClientHttpRequest {
 		return Collections.unmodifiableSet(headers);
 	}
 
+	private Consumer<HttpHeaders> processResponseHeaders() {
+		if (this.compression) {
+			return headers -> {
+				String encoding = headers.getFirst(HttpHeaders.CONTENT_ENCODING);
+				if (encoding != null && SUPPORTED_ENCODINGS.contains(encoding)) {
+					headers.remove(HttpHeaders.CONTENT_ENCODING);
+					headers.remove(HttpHeaders.CONTENT_LENGTH);
+				}
+			};
+		}
+		return headers -> {};
+	}
+
 
 	private static final class ByteBufferMapper implements OutputStreamPublisher.ByteMapper<ByteBuffer> {
 
@@ -254,7 +269,7 @@ class JdkClientHttpRequest extends AbstractStreamingClientHttpRequest {
 
 	/**
 	 * Temporary workaround to use instead of {@link HttpRequest.Builder#timeout(Duration)}
-	 * until <a href="https://bugs.openjdk.org/browse/JDK-8258397">JDK-8258397</a>
+	 * until <a href="https://bugs.openjdk.org/browse/JDK-8208693">JDK-8208693</a>
 	 * is fixed. Essentially, create a future with a timeout handler, and use it
 	 * to close the response.
 	 * @see <a href="https://mail.openjdk.org/pipermail/net-dev/2021-October/016672.html">OpenJDK discussion thread</a>
@@ -312,30 +327,61 @@ class JdkClientHttpRequest extends AbstractStreamingClientHttpRequest {
 	 */
 	private static final class DecompressingBodyHandler implements BodyHandler<InputStream> {
 
+
 		@Override
 		public BodySubscriber<InputStream> apply(ResponseInfo responseInfo) {
-			String contentEncoding = responseInfo.headers().firstValue(HttpHeaders.CONTENT_ENCODING).orElse("");
-			if (contentEncoding.equalsIgnoreCase("gzip")) {
-				return BodySubscribers.mapping(
+
+			String contentEncoding = responseInfo.headers()
+					.firstValue(HttpHeaders.CONTENT_ENCODING)
+					.orElse("")
+					.toLowerCase(Locale.ROOT);
+
+			return switch (contentEncoding) {
+				case "gzip", "deflate" -> BodySubscribers.mapping(
 						BodySubscribers.ofInputStream(),
-						(InputStream is) -> {
-							try {
-								return new GZIPInputStream(is);
-							}
-							catch (IOException ex) {
-								throw new UncheckedIOException(ex);
-							}
-						});
+						(InputStream is) -> decompressStream(is, contentEncoding));
+				default -> BodySubscribers.ofInputStream();
+			};
+		}
+
+		private static InputStream decompressStream(InputStream original, String contentEncoding) {
+			PushbackInputStream wrapped = new PushbackInputStream(original);
+			try {
+				if (hasResponseBody(wrapped)) {
+					if (contentEncoding.equals("gzip")) {
+						return new GZIPInputStream(wrapped);
+					}
+					else if (contentEncoding.equals("deflate")) {
+						return new InflaterInputStream(wrapped);
+					}
+				}
+				else {
+					return wrapped;
+				}
 			}
-			else if (contentEncoding.equalsIgnoreCase("deflate")) {
-				return BodySubscribers.mapping(
-						BodySubscribers.ofInputStream(),
-						InflaterInputStream::new);
+			catch (IOException ex) {
+				throw new UncheckedIOException(ex);
 			}
-			else {
-				return BodySubscribers.ofInputStream();
+			return wrapped;
+		}
+
+		private static boolean hasResponseBody(PushbackInputStream inputStream) {
+			try {
+				int b = inputStream.read();
+				if (b == -1) {
+					return false;
+				}
+				else {
+					inputStream.unread(b);
+					return true;
+				}
+
+			}
+			catch (IOException exc) {
+				return false;
 			}
 		}
 	}
+
 
 }

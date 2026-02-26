@@ -33,12 +33,11 @@ import org.springframework.util.MimeType;
 /**
  * Decode bytes into CBOR and convert to Objects with Jackson 3.x.
  *
- * <p>Stream decoding is currently not supported.
+ * <p><a href="https://github.com/FasterXML/jackson-dataformats-binary/issues/110">Stream decoding is currently not supported</a>.
  *
  * @author Sebastien Deleuze
  * @since 7.0
  * @see JacksonCborEncoder
- * @see <a href="https://github.com/spring-projects/spring-framework/issues/20513">Add CBOR support to WebFlux</a>
  */
 public class JacksonCborDecoder extends AbstractJacksonDecoder<CBORMapper> {
 
@@ -52,16 +51,37 @@ public class JacksonCborDecoder extends AbstractJacksonDecoder<CBORMapper> {
 	}
 
 	/**
+	 * Construct a new instance with the provided {@link CBORMapper.Builder}
+	 * customized with the {@link tools.jackson.databind.JacksonModule}s
+	 * found by {@link MapperBuilder#findModules(ClassLoader)}.
+	 * @see CBORMapper#builder()
+	 */
+	public JacksonCborDecoder(CBORMapper.Builder builder) {
+		super(builder, MediaType.APPLICATION_CBOR);
+	}
+
+	/**
 	 * Construct a new instance with the provided {@link CBORMapper}.
+	 * @see CBORMapper#builder()
 	 */
 	public JacksonCborDecoder(CBORMapper mapper) {
 		super(mapper, MediaType.APPLICATION_CBOR);
 	}
 
 	/**
+	 * Construct a new instance with the provided {@link CBORMapper.Builder}
+	 * customized with the {@link tools.jackson.databind.JacksonModule}s
+	 * found by {@link MapperBuilder#findModules(ClassLoader)}, and
+	 * {@link MimeType}s.
+	 * @see CBORMapper#builder()
+	 */
+	public JacksonCborDecoder(CBORMapper.Builder builder, MimeType... mimeTypes) {
+		super(builder, mimeTypes);
+	}
+
+	/**
 	 * Construct a new instance with the provided {@link CBORMapper} and {@link MimeType}s.
 	 * @see CBORMapper#builder()
-	 * @see MapperBuilder#findAndAddModules(ClassLoader)
 	 */
 	public JacksonCborDecoder(CBORMapper mapper, MimeType... mimeTypes) {
 		super(mapper, mimeTypes);

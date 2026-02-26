@@ -22,17 +22,24 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.reflect.Method;
 import java.security.Principal;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import reactor.test.StepVerifier;
 
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.NoOp;
 import org.springframework.core.annotation.AliasFor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.ReflectionUtils;
+import org.springframework.web.accept.ApiVersionHolder;
+import org.springframework.web.accept.InvalidApiVersionException;
+import org.springframework.web.accept.SemanticApiVersionParser;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -42,7 +49,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.support.StaticWebApplicationContext;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.HandlerTypePredicate;
+import org.springframework.web.reactive.HandlerMapping;
+import org.springframework.web.reactive.accept.DefaultApiVersionStrategy;
+import org.springframework.web.reactive.accept.HeaderApiVersionResolver;
 import org.springframework.web.reactive.result.condition.ConsumesRequestCondition;
 import org.springframework.web.reactive.result.condition.MediaTypeExpression;
 import org.springframework.web.reactive.result.method.RequestMappingInfo;
@@ -51,6 +62,7 @@ import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
 import org.springframework.web.service.annotation.PutExchange;
 import org.springframework.web.testfixture.http.server.reactive.MockServerHttpRequest;
+import org.springframework.web.testfixture.method.PackagePrivateMethodController;
 import org.springframework.web.testfixture.server.MockServerWebExchange;
 import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
@@ -67,6 +79,7 @@ import static org.springframework.web.reactive.result.method.RequestMappingInfo.
  * @author Rossen Stoyanchev
  * @author Olga Maciaszek-Sharma
  * @author Sam Brannen
+ * @author Yongjun Hong
  */
 class RequestMappingHandlerMappingTests {
 
@@ -101,6 +114,35 @@ class RequestMappingHandlerMappingTests {
 
 		assertThat(info).isNotNull();
 		assertThat(info.getPatternsCondition().getPatterns()).containsOnly(new PathPatternParser().parse("/api/user/{id}"));
+	}
+
+	@Test
+	void version() {
+		ServerWebExchange exchange = initExchangeForVersionTest("1.1");
+		HandlerMethod handlerMethod = (HandlerMethod) this.handlerMapping.getHandler(exchange).block();
+		assertThat(handlerMethod.getMethod().getName()).isEqualTo("foo1_1");
+	}
+
+	@Test
+	void versionInvalid() {
+		ServerWebExchange exchange = initExchangeForVersionTest("99");
+		StepVerifier.create(this.handlerMapping.getHandler(exchange))
+				.verifyError(InvalidApiVersionException.class);
+	}
+
+	private ServerWebExchange initExchangeForVersionTest(String version) {
+
+		((StaticWebApplicationContext) this.handlerMapping.getApplicationContext())
+				.registerSingleton("controller", VersionController.class);
+
+		DefaultApiVersionStrategy versionStrategy = new DefaultApiVersionStrategy(
+				List.of(new HeaderApiVersionResolver("API-Version")), new SemanticApiVersionParser(),
+				true, null, true, null, null);
+		this.handlerMapping.setApiVersionStrategy(versionStrategy);
+		this.handlerMapping.afterPropertiesSet();
+
+		MockServerHttpRequest request = MockServerHttpRequest.get("/foo").header("API-Version", version).build();
+		return MockServerWebExchange.from(request);
 	}
 
 	@Test
@@ -363,6 +405,7 @@ class RequestMappingHandlerMappingTests {
 		MockServerHttpRequest request = MockServerHttpRequest.post(path)
 				.contentType(mediaType).build();
 		ServerWebExchange exchange = MockServerWebExchange.from(request);
+		exchange.getAttributes().put(HandlerMapping.API_VERSION_ATTRIBUTE, ApiVersionHolder.EMPTY);
 		RequestMappingInfo matchingInfo = info.getMatchingCondition(exchange);
 		// Since the request has no body AND the required flag is false, the
 		// ConsumesCondition in the matching condition in an EMPTY_CONDITION.
@@ -405,8 +448,67 @@ class RequestMappingHandlerMappingTests {
 		MockServerHttpRequest request = MockServerHttpRequest.post(path)
 				.contentType(mediaType).build();
 		ServerWebExchange exchange = MockServerWebExchange.from(request);
+		exchange.getAttributes().put(HandlerMapping.API_VERSION_ATTRIBUTE, ApiVersionHolder.EMPTY);
 		RequestMappingInfo matchingInfo = info.getMatchingCondition(exchange);
 		assertThat(matchingInfo).isEqualTo(paths(path).methods(POST).consumes(mediaType.toString()).build());
+	}
+
+	@Test  // gh-35352
+	void privateMethodOnCglibProxyShouldThrowException() throws Exception {
+		RequestMappingHandlerMapping mapping = new RequestMappingHandlerMapping();
+
+		Class<?> handlerType = PrivateMethodController.class;
+		String methodName = "privateMethod";
+		Method method = handlerType.getDeclaredMethod(methodName);
+		Class<?> proxyClass = createProxyClass(handlerType);
+
+		assertThatIllegalStateException()
+				.isThrownBy(() -> mapping.getMappingForMethod(method, proxyClass))
+				.withMessage("""
+						Private method [%s] on CGLIB proxy class [%s] cannot be used as a request \
+						handler method, because private methods cannot be overridden. \
+						Change the method to non-private visibility, or use interface-based JDK \
+						proxying instead.""", methodName, proxyClass.getName());
+	}
+
+	@Test  // gh-35352
+	void protectedMethodOnCglibProxyShouldNotThrowException() throws Exception {
+		RequestMappingHandlerMapping mapping = new RequestMappingHandlerMapping();
+
+		Class<?> handlerType = ProtectedMethodController.class;
+		Method method = handlerType.getDeclaredMethod("protectedMethod");
+		Class<?> proxyClass = createProxyClass(handlerType);
+
+		RequestMappingInfo info = mapping.getMappingForMethod(method, proxyClass);
+
+		assertThat(info.getPatternsCondition().getDirectPaths()).containsOnly("/protected");
+	}
+
+	@Test  // gh-35352
+	void differentPackagePackagePrivateMethodOnCglibProxyShouldThrowException() throws Exception {
+		RequestMappingHandlerMapping mapping = new RequestMappingHandlerMapping();
+
+		Class<?> handlerType = LocalPackagePrivateMethodControllerSubclass.class;
+		Class<?> declaringClass = PackagePrivateMethodController.class;
+		String methodName = "packagePrivateMethod";
+		Method method = declaringClass.getDeclaredMethod(methodName);
+		Class<?> proxyClass = createProxyClass(handlerType);
+
+		assertThatIllegalStateException()
+				.isThrownBy(() -> mapping.getMappingForMethod(method, proxyClass))
+				.withMessage("""
+						Package-private method [%s] declared in class [%s] cannot be advised by \
+						CGLIB-proxied handler class [%s], because it is effectively private. Either \
+						make the method public or protected, or use interface-based JDK proxying instead.""",
+							methodName, declaringClass.getName(), proxyClass.getName());
+	}
+
+
+	private static Class<?> createProxyClass(Class<?> targetClass) {
+		Enhancer enhancer = new Enhancer();
+		enhancer.setSuperclass(targetClass);
+		enhancer.setCallbackTypes(new Class[]{NoOp.class});
+		return enhancer.createClass();
 	}
 
 	private RequestMappingInfo assertComposedAnnotationMapping(RequestMethod requestMethod) {
@@ -502,6 +604,22 @@ class RequestMappingHandlerMappingTests {
 		@GetMapping("/{id}")
 		public Principal getUser() {
 			return mock();
+		}
+	}
+
+
+	@RestController
+	@RequestMapping("/foo")
+	static class VersionController {
+
+		@GetMapping
+		public String foo() {
+			return "foo";
+		}
+
+		@GetMapping(version = "1.1")
+		public String foo1_1() {
+			return "foo1_1";
 		}
 	}
 
@@ -611,6 +729,23 @@ class RequestMappingHandlerMappingTests {
 	@Target(ElementType.TYPE)
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface ExtraHttpExchange {
+	}
+
+	@Controller
+	static class PrivateMethodController {
+
+		@RequestMapping("/private")
+		private void privateMethod() {}
+	}
+
+	@Controller
+	static class ProtectedMethodController {
+
+		@RequestMapping("/protected")
+		protected void protectedMethod() {}
+	}
+
+	static class LocalPackagePrivateMethodControllerSubclass extends PackagePrivateMethodController {
 	}
 
 }

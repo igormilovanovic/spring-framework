@@ -42,6 +42,7 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.ResolvableType;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpRequest;
@@ -253,6 +254,10 @@ final class DefaultRestClient implements RestClient {
 				}
 			}
 
+			if (bodyClass.equals(InputStream.class)) {
+				return (T) responseWrapper.getBody();
+			}
+
 			throw new UnknownContentTypeException(bodyType, contentType,
 					responseWrapper.getStatusCode(), responseWrapper.getStatusText(),
 					responseWrapper.getHeaders(), RestClientUtils.getBody(responseWrapper));
@@ -292,6 +297,8 @@ final class DefaultRestClient implements RestClient {
 
 
 	private class DefaultRequestBodyUriSpec implements RequestBodyUriSpec {
+
+		private static final Object NO_VERSION = new Object();
 
 		private final HttpMethod httpMethod;
 
@@ -430,8 +437,8 @@ final class DefaultRestClient implements RestClient {
 		}
 
 		@Override
-		public RequestBodySpec apiVersion(Object version) {
-			this.apiVersion = version;
+		public RequestBodySpec apiVersion(@Nullable Object version) {
+			this.apiVersion = (version != null ? version : NO_VERSION);
 			return this;
 		}
 
@@ -607,7 +614,11 @@ final class DefaultRestClient implements RestClient {
 				clientResponse = clientRequest.execute();
 				observationContext.setResponse(clientResponse);
 				ConvertibleClientHttpResponse convertibleWrapper = new DefaultConvertibleClientHttpResponse(clientResponse, this.hints);
-				return exchangeFunction.exchange(clientRequest, convertibleWrapper);
+				T result = exchangeFunction.exchange(clientRequest, convertibleWrapper);
+				if (close && isStreamingResult(result)) {
+					close = false;
+				}
+				return result;
 			}
 			catch (IOException ex) {
 				ResourceAccessException resourceAccessException = createResourceAccessException(uri, this.httpMethod, ex);
@@ -646,7 +657,15 @@ final class DefaultRestClient implements RestClient {
 		}
 
 		private @Nullable Object getApiVersionOrDefault() {
-			return (this.apiVersion != null ? this.apiVersion : DefaultRestClient.this.defaultApiVersion);
+			if (this.apiVersion == null) {
+				return DefaultRestClient.this.defaultApiVersion;
+			}
+			else if (this.apiVersion == NO_VERSION) {
+				return null;
+			}
+			else {
+				return this.apiVersion;
+			}
 		}
 
 		private @Nullable String serializeCookies() {
@@ -736,6 +755,10 @@ final class DefaultRestClient implements RestClient {
 			return request;
 		}
 
+		private static boolean isStreamingResult(@Nullable Object result) {
+			return (result instanceof InputStream || result instanceof InputStreamResource);
+		}
+
 		private static ResourceAccessException createResourceAccessException(URI url, HttpMethod method, IOException ex) {
 			StringBuilder msg = new StringBuilder("I/O error on ");
 			msg.append(method.name());
@@ -803,17 +826,29 @@ final class DefaultRestClient implements RestClient {
 		}
 
 		@Override
-		@SuppressWarnings("NullAway") // See https://github.com/uber/NullAway/issues/1075
 		public <T> @Nullable T body(Class<T> bodyType) {
 			return executeAndExtract((request, response) -> readBody(request, response, bodyType, bodyType, this.hints));
 		}
 
 		@Override
-		@SuppressWarnings("NullAway") // See https://github.com/uber/NullAway/issues/1075
+		public <T> T requiredBody(Class<T> bodyType) {
+			T body = body(bodyType);
+			Assert.state(body != null, "The body must not be null");
+			return body;
+		}
+
+		@Override
 		public <T> @Nullable T body(ParameterizedTypeReference<T> bodyType) {
 			Type type = bodyType.getType();
 			Class<T> bodyClass = bodyClass(type);
 			return executeAndExtract((request, response) -> readBody(request, response, type, bodyClass, this.hints));
+		}
+
+		@Override
+		public <T> T requiredBody(ParameterizedTypeReference<T> bodyType) {
+			T body = body(bodyType);
+			Assert.state(body != null, "The body must not be null");
+			return body;
 		}
 
 		@Override

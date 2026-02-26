@@ -18,9 +18,12 @@ package org.springframework.core.annotation;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.jspecify.annotations.Nullable;
 
@@ -38,6 +41,7 @@ import org.springframework.util.StringUtils;
  * interface-declared parameter annotations from the concrete target method.
  *
  * @author Juergen Hoeller
+ * @author Sam Brannen
  * @since 6.1
  * @see #getMethodAnnotation(Class)
  * @see #getMethodParameters()
@@ -46,11 +50,15 @@ import org.springframework.util.StringUtils;
  */
 public class AnnotatedMethod {
 
+	private static final Object NO_ANNOTATION = new Object();
+
 	private final Method method;
 
 	private final Method bridgedMethod;
 
 	private final MethodParameter[] parameters;
+
+	private final Map<Class<? extends Annotation>, Object> annotations;
 
 	private volatile @Nullable List<Annotation[][]> inheritedParameterAnnotations;
 
@@ -65,6 +73,7 @@ public class AnnotatedMethod {
 		this.bridgedMethod = BridgeMethodResolver.findBridgedMethod(method);
 		ReflectionUtils.makeAccessible(this.bridgedMethod);
 		this.parameters = initMethodParameters();
+		this.annotations = new ConcurrentHashMap<>(4);
 	}
 
 	/**
@@ -75,6 +84,7 @@ public class AnnotatedMethod {
 		this.method = annotatedMethod.method;
 		this.bridgedMethod = annotatedMethod.bridgedMethod;
 		this.parameters = annotatedMethod.parameters;
+		this.annotations = annotatedMethod.annotations;
 		this.inheritedParameterAnnotations = annotatedMethod.inheritedParameterAnnotations;
 	}
 
@@ -147,8 +157,13 @@ public class AnnotatedMethod {
 	 * @return the annotation, or {@code null} if none found
 	 * @see AnnotatedElementUtils#findMergedAnnotation
 	 */
+	@SuppressWarnings("unchecked")
 	public <A extends Annotation> @Nullable A getMethodAnnotation(Class<A> annotationType) {
-		return AnnotatedElementUtils.findMergedAnnotation(this.method, annotationType);
+		Object result = this.annotations.computeIfAbsent(annotationType, key -> {
+					Object value = AnnotatedElementUtils.findMergedAnnotation(this.method, annotationType);
+					return (value == null ? NO_ANNOTATION : value);
+				});
+		return (result == NO_ANNOTATION ? null : (A) result);
 	}
 
 	/**
@@ -158,7 +173,7 @@ public class AnnotatedMethod {
 	 * @see AnnotatedElementUtils#hasAnnotation
 	 */
 	public <A extends Annotation> boolean hasMethodAnnotation(Class<A> annotationType) {
-		return AnnotatedElementUtils.hasAnnotation(this.method, annotationType);
+		return (getMethodAnnotation(annotationType) != null);
 	}
 
 	private List<Annotation[][]> getInheritedParameterAnnotations() {
@@ -179,7 +194,7 @@ public class AnnotatedMethod {
 					clazz = null;
 				}
 				if (clazz != null) {
-					for (Method candidate : clazz.getMethods()) {
+					for (Method candidate : clazz.getDeclaredMethods()) {
 						if (isOverrideFor(candidate)) {
 							parameterAnnotations.add(candidate.getParameterAnnotations());
 						}
@@ -192,8 +207,9 @@ public class AnnotatedMethod {
 	}
 
 	private boolean isOverrideFor(Method candidate) {
-		if (!candidate.getName().equals(this.method.getName()) ||
-				candidate.getParameterCount() != this.method.getParameterCount()) {
+		if (Modifier.isPrivate(candidate.getModifiers()) ||
+				!candidate.getName().equals(this.method.getName()) ||
+				(candidate.getParameterCount() != this.method.getParameterCount())) {
 			return false;
 		}
 		Class<?>[] paramTypes = this.method.getParameterTypes();

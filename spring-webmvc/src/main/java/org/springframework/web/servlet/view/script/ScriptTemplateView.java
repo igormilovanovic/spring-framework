@@ -62,10 +62,6 @@ import org.springframework.web.servlet.view.AbstractUrlBasedView;
  * {@link ScriptTemplateConfig} bean in the web application context and using
  * it to obtain the configured properties.
  *
- * <p>The Nashorn JavaScript engine requires Java 8+ and may require setting the
- * {@code sharedEngine} property to {@code false} in order to run properly. See
- * {@link ScriptTemplateConfigurer#setSharedEngine(Boolean)} for more details.
- *
  * @author Sebastien Deleuze
  * @author Juergen Hoeller
  * @since 4.2
@@ -378,7 +374,7 @@ public class ScriptTemplateView extends AbstractUrlBasedView {
 
 		setResponseContentType(request, response);
 		if (this.charset != null) {
-			response.setCharacterEncoding(this.charset.name());
+			response.setCharacterEncoding(this.charset);
 		}
 	}
 

@@ -83,9 +83,9 @@ import org.springframework.util.xml.StaxUtils;
  * detected on the classpath:
  * <ul>
  * <li><a href="https://github.com/FasterXML/jackson-datatype-jdk8">jackson-datatype-jdk8</a>:
- * support for other Java 8 types like {@link java.util.Optional}</li>
+ * support for Java 8 types like {@link java.util.Optional}</li>
  * <li><a href="https://github.com/FasterXML/jackson-datatype-jsr310">jackson-datatype-jsr310</a>:
- * support for Java 8 Date &amp; Time API types</li>
+ * support for Java Date &amp; Time API types</li>
  * <li><a href="https://github.com/FasterXML/jackson-module-kotlin">jackson-module-kotlin</a>:
  * support for Kotlin classes and data classes</li>
  * <li><a href="https://github.com/FasterXML/jackson-modules-java8/tree/2.18/parameter-names">jackson-modules-java8/parameter-names</a>:
@@ -106,7 +106,7 @@ import org.springframework.util.xml.StaxUtils;
 @SuppressWarnings("removal")
 public class Jackson2ObjectMapperBuilder {
 
-	private static final boolean jackson2XmlPresent = ClassUtils.isPresent(
+	private static final boolean JACKSON_2_XML_PRESENT = ClassUtils.isPresent(
 			"com.fasterxml.jackson.dataformat.xml.XmlMapper", Jackson2ObjectMapperBuilder.class.getClassLoader());
 
 
@@ -747,7 +747,7 @@ public class Jackson2ObjectMapperBuilder {
 			objectMapper.setFilterProvider(this.filters);
 		}
 
-		if (jackson2XmlPresent) {
+		if (JACKSON_2_XML_PRESENT) {
 			objectMapper.addMixIn(ProblemDetail.class, ProblemDetailJacksonXmlMixin.class);
 		}
 		else {

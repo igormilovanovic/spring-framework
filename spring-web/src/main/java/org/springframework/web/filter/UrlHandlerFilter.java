@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,8 +44,8 @@ import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
 
 /**
- * {@link jakarta.servlet.Filter} that modifies the URL, and then redirects or
- * wraps the request to apply the change.
+ * {@link jakarta.servlet.Filter} that modifies the URL, and then either
+ * redirects or wraps the request to effect the change.
  *
  * <p>To create an instance, you can use the following:
  *
@@ -55,8 +56,8 @@ import org.springframework.web.util.pattern.PathPatternParser;
  *    .build();
  * </pre>
  *
- * <p>This {@code Filter} should be ordered after {@link ForwardedHeaderFilter}
- * and before any security filters.
+ * <p>This {@code Filter} should be ordered after {@link ForwardedHeaderFilter},
+ * before {@link ServletRequestPathFilter}, and before security filters.
  *
  * @author Rossen Stoyanchev
  * @since 6.2
@@ -75,40 +76,22 @@ public final class UrlHandlerFilter extends OncePerRequestFilter {
 
 
 	@Override
-	protected boolean shouldNotFilterAsyncDispatch() {
-		return false;
-	}
-
-	@Override
-	protected boolean shouldNotFilterErrorDispatch() {
-		return false;
-	}
-
-	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
 
-		RequestPath previousPath = (RequestPath) request.getAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE);
-		RequestPath path = previousPath;
-		try {
-			if (path == null) {
-				path = ServletRequestPathUtils.parseAndCache(request);
+		RequestPath path = (ServletRequestPathUtils.hasParsedRequestPath(request) ?
+				ServletRequestPathUtils.getParsedRequestPath(request) :
+				ServletRequestPathUtils.parse(request));
+
+		for (Map.Entry<Handler, List<PathPattern>> entry : this.handlers.entrySet()) {
+			if (!entry.getKey().supports(request, path)) {
+				continue;
 			}
-			for (Map.Entry<Handler, List<PathPattern>> entry : this.handlers.entrySet()) {
-				if (!entry.getKey().supports(request, path)) {
-					continue;
+			for (PathPattern pattern : entry.getValue()) {
+				if (pattern.matches(path)) {
+					entry.getKey().handle(request, response, chain);
+					return;
 				}
-				for (PathPattern pattern : entry.getValue()) {
-					if (pattern.matches(path)) {
-						entry.getKey().handle(request, response, chain);
-						return;
-					}
-				}
-			}
-		}
-		finally {
-			if (previousPath != null) {
-				ServletRequestPathUtils.setParsedRequestPath(previousPath, request);
 			}
 		}
 
@@ -117,10 +100,18 @@ public final class UrlHandlerFilter extends OncePerRequestFilter {
 
 
 	/**
-	 * Create a builder by adding a handler for URL's with a trailing slash.
-	 * @param pathPatterns path patterns to map the handler to, for example,
-	 * <code>"/path/&#42;"</code>, <code>"/path/&#42;&#42;"</code>,
-	 * <code>"/path/foo/"</code>.
+	 * Add a handler that removes the trailing slash from URL paths to ensure
+	 * consistent interpretation of paths with or without a trailing slash for
+	 * requestion mapping purposes. This is important especially to avoid
+	 * misalignment between URL-based authorization decisions and web framework
+	 * request mappings.
+	 * <p>The root path {@code "/"} is excluded from trailing slash handling.
+	 * <p><strong>Note:</strong> A method-level {@code @RequestMapping("/")} adds
+	 * a trailing slash to a type-level prefix mapping, and therefore would never
+	 * match to a URL with the trailing slash removed. Use {@code @RequestMapping}
+	 * without a path instead to avoid the trailing slash in the mapping.
+	 * @param pathPatterns patterns to map the handler to, e.g.
+	 * <code>"/path/&#42;"</code>, <code>"/path/&#42;&#42;"</code>, <code>"/path/foo/"</code>
 	 * @return a spec to configure the trailing slash handler with
 	 * @see Builder#trailingSlashHandler(String...)
 	 */
@@ -316,9 +307,14 @@ public final class UrlHandlerFilter extends OncePerRequestFilter {
 		public void handleInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 				throws IOException {
 
+			String location = trimTrailingSlash(request.getRequestURI());
+			if (StringUtils.hasText(request.getQueryString())) {
+				location += "?" + request.getQueryString();
+			}
+
 			response.resetBuffer();
 			response.setStatus(this.httpStatus.value());
-			response.setHeader(HttpHeaders.LOCATION, trimTrailingSlash(request.getRequestURI()));
+			response.setHeader(HttpHeaders.LOCATION, location);
 			response.flushBuffer();
 		}
 	}
@@ -348,7 +344,16 @@ public final class UrlHandlerFilter extends OncePerRequestFilter {
 					hasPathInfo ? servletPath : trimTrailingSlash(servletPath),
 					hasPathInfo ? trimTrailingSlash(pathInfo) : pathInfo);
 
-			chain.doFilter(request, response);
+			RequestPath previousPath = (RequestPath) request.getAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE);
+			ServletRequestPathUtils.clearParsedRequestPath(request);
+			try {
+				chain.doFilter(request, response);
+			}
+			finally {
+				if (previousPath != null) {
+					ServletRequestPathUtils.setParsedRequestPath(previousPath, request);
+				}
+			}
 		}
 	}
 
@@ -378,22 +383,30 @@ public final class UrlHandlerFilter extends OncePerRequestFilter {
 
 		@Override
 		public String getRequestURI() {
-			return this.requestURI;
+			return (isForward() ? getDelegate().getRequestURI() : this.requestURI);
 		}
 
 		@Override
 		public StringBuffer getRequestURL() {
-			return this.requestURL;
+			return (isForward() ? getDelegate().getRequestURL() : this.requestURL);
 		}
 
 		@Override
 		public String getServletPath() {
-			return this.servletPath;
+			return (isForward() ? getDelegate().getServletPath() : this.servletPath);
 		}
 
 		@Override
 		public String getPathInfo() {
-			return this.pathInfo;
+			return (isForward() ? getDelegate().getPathInfo() : this.pathInfo);
+		}
+
+		private boolean isForward() {
+			return (getDispatcherType() == DispatcherType.FORWARD);
+		}
+
+		private HttpServletRequest getDelegate() {
+			return (HttpServletRequest) getRequest();
 		}
 	}
 

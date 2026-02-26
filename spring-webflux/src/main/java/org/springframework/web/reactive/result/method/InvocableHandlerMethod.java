@@ -37,6 +37,7 @@ import kotlin.reflect.full.KClasses;
 import kotlin.reflect.jvm.KCallablesJvm;
 import kotlin.reflect.jvm.ReflectJvmMapping;
 import org.jspecify.annotations.Nullable;
+import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.SynchronousSink;
 import reactor.core.scheduler.Scheduler;
@@ -80,20 +81,18 @@ public class InvocableHandlerMethod extends HandlerMethod {
 
 	private static final Mono<Object[]> EMPTY_ARGS = Mono.just(new Object[0]);
 
-	private static final Class<?>[] EMPTY_GROUPS = new Class<?>[0];
-
 	private static final Object NO_ARG_VALUE = new Object();
+
+	private static final boolean KOTLIN_REFLECT_PRESENT = KotlinDetector.isKotlinReflectPresent();
 
 
 	private final HandlerMethodArgumentResolverComposite resolvers = new HandlerMethodArgumentResolverComposite();
 
-	private ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
+	private ParameterNameDiscoverer parameterNameDiscoverer = DefaultParameterNameDiscoverer.getSharedInstance();
 
 	private ReactiveAdapterRegistry reactiveAdapterRegistry = ReactiveAdapterRegistry.getSharedInstance();
 
 	private @Nullable MethodValidator methodValidator;
-
-	private Class<?>[] validationGroups = EMPTY_GROUPS;
 
 	private @Nullable Scheduler invocationScheduler;
 
@@ -147,7 +146,7 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	/**
 	 * Configure a reactive adapter registry. This is needed for cases where the response is
 	 * fully handled within the controller in combination with an async void return value.
-	 * <p>By default this is a {@link ReactiveAdapterRegistry} with default settings.
+	 * <p>By default, this is a {@link ReactiveAdapterRegistry} with default settings.
 	 */
 	public void setReactiveAdapterRegistry(ReactiveAdapterRegistry registry) {
 		this.reactiveAdapterRegistry = registry;
@@ -161,8 +160,6 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	 */
 	public void setMethodValidator(@Nullable MethodValidator methodValidator) {
 		this.methodValidator = methodValidator;
-		this.validationGroups = (methodValidator != null ?
-				methodValidator.determineValidationGroups(getBean(), getBridgedMethod()) : EMPTY_GROUPS);
 	}
 
 	/**
@@ -189,19 +186,24 @@ public class InvocableHandlerMethod extends HandlerMethod {
 				try {
 					LocaleContextHolder.setLocaleContext(exchange.getLocaleContext());
 					this.methodValidator.applyArgumentValidation(
-							getBean(), getBridgedMethod(), getMethodParameters(), args, this.validationGroups);
+							getBean(), getBridgedMethod(), getMethodParameters(), args, getValidationGroups());
 				}
 				finally {
 					LocaleContextHolder.resetLocaleContext();
 				}
 			}
 			Object value;
+			boolean isSuspendingFunction;
 			Method method = getBridgedMethod();
-			boolean isSuspendingFunction = KotlinDetector.isSuspendingFunction(method);
 			try {
-				value = (KotlinDetector.isKotlinType(method.getDeclaringClass()) ?
-						KotlinDelegate.invokeFunction(method, getBean(), args, isSuspendingFunction, exchange) :
-						method.invoke(getBean(), args));
+				if (KOTLIN_REFLECT_PRESENT && KotlinDetector.isKotlinType(method.getDeclaringClass())) {
+					isSuspendingFunction = KotlinDetector.isSuspendingFunction(method);
+					value = KotlinDelegate.invokeFunction(method, getBean(), args, isSuspendingFunction, exchange);
+				}
+				else {
+					isSuspendingFunction = false;
+					value = method.invoke(getBean(), args);
+				}
 			}
 			catch (IllegalArgumentException ex) {
 				assertTargetBean(getBridgedMethod(), getBean(), args);
@@ -332,7 +334,7 @@ public class InvocableHandlerMethod extends HandlerMethod {
 
 			if (isSuspendingFunction) {
 				Object coroutineContext = exchange.getAttribute(COROUTINE_CONTEXT_ATTRIBUTE);
-				Object result = (coroutineContext == null ? CoroutinesUtils.invokeSuspendingFunction(method, target, args) :
+				Publisher<?> result = (coroutineContext == null ? CoroutinesUtils.invokeSuspendingFunction(method, target, args) :
 						CoroutinesUtils.invokeSuspendingFunction((CoroutineContext) coroutineContext, method, target, args));
 				return (result instanceof Mono<?> mono ? mono.handle(KotlinDelegate::handleResult) : result);
 			}

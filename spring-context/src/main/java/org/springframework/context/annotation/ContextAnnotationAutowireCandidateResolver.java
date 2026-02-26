@@ -44,6 +44,7 @@ import org.springframework.core.annotation.AnnotationUtils;
  * driven by the {@link Lazy} annotation in the {@code context.annotation} package.
  *
  * @author Juergen Hoeller
+ * @author Sam Brannen
  * @since 4.0
  */
 public class ContextAnnotationAutowireCandidateResolver extends QualifierAnnotationAutowireCandidateResolver {
@@ -60,7 +61,12 @@ public class ContextAnnotationAutowireCandidateResolver extends QualifierAnnotat
 
 	protected boolean isLazy(DependencyDescriptor descriptor) {
 		for (Annotation ann : descriptor.getAnnotations()) {
-			Lazy lazy = AnnotationUtils.getAnnotation(ann, Lazy.class);
+			// Directly present?
+			if (ann instanceof Lazy lazy && lazy.value()) {
+				return true;
+			}
+			// Meta-present?
+			Lazy lazy = AnnotationUtils.findAnnotation(ann.annotationType(), Lazy.class);
 			if (lazy != null && lazy.value()) {
 				return true;
 			}
@@ -69,7 +75,7 @@ public class ContextAnnotationAutowireCandidateResolver extends QualifierAnnotat
 		if (methodParam != null) {
 			Method method = methodParam.getMethod();
 			if (method == null || void.class == method.getReturnType()) {
-				Lazy lazy = AnnotationUtils.getAnnotation(methodParam.getAnnotatedElement(), Lazy.class);
+				Lazy lazy = AnnotationUtils.findAnnotation(methodParam.getAnnotatedElement(), Lazy.class);
 				if (lazy != null && lazy.value()) {
 					return true;
 				}
@@ -168,22 +174,25 @@ public class ContextAnnotationAutowireCandidateResolver extends QualifierAnnotat
 				}
 			}
 
-			boolean cacheable = true;
-			for (String autowiredBeanName : autowiredBeanNames) {
-				if (!this.beanFactory.containsBean(autowiredBeanName)) {
-					cacheable = false;
-				}
-				else {
-					if (this.beanName != null) {
-						this.beanFactory.registerDependentBean(autowiredBeanName, this.beanName);
-					}
-					if (!this.beanFactory.isSingleton(autowiredBeanName)) {
+			boolean cacheable = false;
+			if (!autowiredBeanNames.isEmpty()) {
+				cacheable = true;
+				for (String autowiredBeanName : autowiredBeanNames) {
+					if (!this.beanFactory.containsBean(autowiredBeanName)) {
 						cacheable = false;
 					}
+					else {
+						if (this.beanName != null) {
+							this.beanFactory.registerDependentBean(autowiredBeanName, this.beanName);
+						}
+						if (!this.beanFactory.isSingleton(autowiredBeanName)) {
+							cacheable = false;
+						}
+					}
 				}
-				if (cacheable) {
-					this.cachedTarget = target;
-				}
+			}
+			if (cacheable) {
+				this.cachedTarget = target;
 			}
 
 			return target;

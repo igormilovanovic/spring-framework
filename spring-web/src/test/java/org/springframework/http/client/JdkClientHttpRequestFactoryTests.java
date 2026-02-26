@@ -26,6 +26,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledForJreRange;
 import org.junit.jupiter.api.condition.JRE;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -135,7 +137,9 @@ class JdkClientHttpRequestFactoryTests extends AbstractHttpRequestFactoryTests {
 		try (ClientHttpResponse response = request.execute()) {
 			assertThat(response.getStatusCode()).as("Invalid response status").isEqualTo(HttpStatus.OK);
 			assertThat(response.getHeaders().getFirst("Content-Encoding"))
-					.as("Invalid content encoding").isEqualTo("gzip");
+					.as("Content Encoding should be removed").isNull();
+			assertThat(response.getHeaders().getFirst("Content-Length"))
+					.as("Content-Length should be removed").isNull();
 			assertThat(response.getBody()).as("Invalid request body").hasContent("Payload to compress");
 		}
 	}
@@ -150,8 +154,27 @@ class JdkClientHttpRequestFactoryTests extends AbstractHttpRequestFactoryTests {
 		try (ClientHttpResponse response = request.execute()) {
 			assertThat(response.getStatusCode()).as("Invalid response status").isEqualTo(HttpStatus.OK);
 			assertThat(response.getHeaders().getFirst("Content-Encoding"))
-					.as("Invalid content encoding").isEqualTo("deflate");
+					.as("Content Encoding should be removed").isNull();
+			assertThat(response.getHeaders().getFirst("Content-Length"))
+					.as("Content-Length should be removed").isNull();
 			assertThat(response.getBody()).as("Invalid request body").hasContent("Payload to compress");
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"gzip", "deflate"})
+	void gzipCompressionWithHeadRequest(String compression) throws IOException {
+		URI uri = URI.create(baseUrl + "/headforcompress/" + compression);
+		JdkClientHttpRequestFactory requestFactory = (JdkClientHttpRequestFactory) this.factory;
+		requestFactory.enableCompression(true);
+		ClientHttpRequest request = requestFactory.createRequest(uri, HttpMethod.HEAD);
+		try (ClientHttpResponse response = request.execute()) {
+			assertThat(response.getStatusCode()).as("Invalid response status").isEqualTo(HttpStatus.OK);
+			assertThat(response.getHeaders().getFirst("Content-Encoding"))
+					.as("Content Encoding should be removed").isNull();
+			assertThat(response.getHeaders().getFirst("Content-Length"))
+					.as("Content-Length should be removed").isNull();
+			assertThat(response.getBody()).as("Invalid response body").isEmpty();
 		}
 	}
 

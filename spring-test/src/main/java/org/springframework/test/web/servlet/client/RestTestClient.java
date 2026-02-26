@@ -24,7 +24,6 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import org.hamcrest.Matcher;
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.ParameterizedTypeReference;
@@ -263,9 +262,12 @@ public interface RestTestClient {
 		 * Configure an {@link ApiVersionInserter} to abstract how an API version
 		 * specified via {@link RequestHeadersSpec#apiVersion(Object)}
 		 * is inserted into the request.
+		 * <p>{@code ApiVersionInserter} exposes shortcut methods for several
+		 * built-in inserter implementation types. See the class-level Javadoc
+		 * of {@link ApiVersionInserter} for a list of choices.
 		 * @param apiVersionInserter the inserter to use
 		 */
-		<T extends B> T apiVersionInserter(ApiVersionInserter apiVersionInserter);
+		<T extends B> T apiVersionInserter(@Nullable ApiVersionInserter apiVersionInserter);
 
 		/**
 		 * Add the given request interceptor to the end of the interceptor chain.
@@ -479,14 +481,19 @@ public interface RestTestClient {
 
 		/**
 		 * Set an API version for the request. The version is inserted into the
-		 * request by the {@linkplain Builder#apiVersionInserter(ApiVersionInserter)
+		 * request through the {@link Builder#apiVersionInserter(ApiVersionInserter)
 		 * configured} {@code ApiVersionInserter}.
-		 * @param version the API version of the request; this can be a String or
-		 * some Object that can be formatted by the inserter &mdash; for example,
-		 * through an {@link ApiVersionFormatter}
+		 * <p>If no version is set, the
+		 * {@link Builder#defaultApiVersion(Object) defaultApiVersion} is used,
+		 * if configured.
+		 * <p>If {@code null} is passed, then an API version is not inserted
+		 * irrespective of default version settings.
+		 * @param version the API version for the request; this can be a String
+		 * or some Object that can be formatted the inserter, e.g. through an
+		 * {@link ApiVersionFormatter}.
 		 * @return this spec for further declaration of the request
 		 */
-		S apiVersion(Object version);
+		S apiVersion(@Nullable Object version);
 
 		/**
 		 * Set the attribute with the given name to the given value.
@@ -506,10 +513,28 @@ public interface RestTestClient {
 		S attributes(Consumer<Map<String, Object>> attributesConsumer);
 
 		/**
-		 * Perform the exchange without a request body.
-		 * @return a spec for decoding the response
+		 * Perform the exchange.
+		 * <p>The returned spec may be used in one of two alternative ways:
+		 * <ul>
+		 * <li>Use methods on the spec to extend the request workflow with a
+		 * chain of response expectations
+		 * <li>Wrap the spec with
+		 * {@link org.springframework.test.web.servlet.client.assertj.RestTestClientResponse#from(ResponseSpec)}
+		 * and verify the response with AssertJ statements
+		 * </ul>
+		 * @return a spec for expectations on the response
 		 */
 		ResponseSpec exchange();
+
+		/**
+		 * Variant of {@link #exchange()} that expects a successful response.
+		 * Effectively, a shortcut for:
+		 * <pre class="code">
+		 * exchange().expectStatus().is2xxSuccessful()
+		 * </pre>
+		 * @return a spec for expectations on the response
+		 */
+		ResponseSpec exchangeSuccessfully();
 	}
 
 
@@ -630,13 +655,24 @@ public interface RestTestClient {
 		BodyContentSpec expectBody();
 
 		/**
-		 * Exit the chained flow in order to consume the response body externally.
+		 * Return an {@link ExchangeResult} with the raw content. Effectively, a shortcut for:
+		 * <pre class="code">
+		 * .returnResult(byte[].class)
+		 * </pre>
+		 */
+		default ExchangeResult returnResult() {
+			return returnResult(byte[].class);
+		}
+
+		/**
+		 * Convert the response content to the given target type, and return an
+		 * {@link ExchangeResult} that represents the exchange.
 		 */
 		<T> EntityExchangeResult<T> returnResult(Class<T> elementClass);
 
 		/**
-		 * Alternative to {@link #returnResult(Class)} that accepts information
-		 * about a target type with generics.
+		 * Alternative to {@link #returnResult(Class)} that allows specifying a
+		 * response body type with generics.
 		 */
 		<T> EntityExchangeResult<T> returnResult(ParameterizedTypeReference<T> elementTypeRef);
 
@@ -664,20 +700,15 @@ public interface RestTestClient {
 		<T extends S> T isEqualTo(@Nullable B expected);
 
 		/**
-		 * Assert the extracted body with a {@link Matcher}.
-		 */
-		<T extends S> T value(Matcher<? super @Nullable B> matcher);
-
-		/**
-		 * Transform the extracted the body with a function, for example, extracting a
-		 * property, and assert the mapped value with a {@link Matcher}.
-		 */
-		<T extends S, R> T value(Function<@Nullable B, @Nullable R> bodyMapper, Matcher<? super @Nullable R> matcher);
-
-		/**
 		 * Assert the extracted body with a {@link Consumer}.
 		 */
 		<T extends S> T value(Consumer<@Nullable B> consumer);
+
+		/**
+		 * Transform the extracted the body with a function, for example, extracting a
+		 * property, and assert the mapped value with a {@link Consumer}.
+		 */
+		<T extends S, R> T value(Function<@Nullable B, @Nullable R> bodyMapper, Consumer<? super @Nullable R> consumer);
 
 		/**
 		 * Assert the exchange result with the given {@link Consumer}.

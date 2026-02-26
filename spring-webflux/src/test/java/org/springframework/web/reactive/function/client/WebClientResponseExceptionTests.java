@@ -17,6 +17,11 @@
 package org.springframework.web.reactive.function.client;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests for {@link WebClientResponseException}.
  *
  * @author Simon Baslé
+ * @author Brian Clozel
  */
 class WebClientResponseExceptionTests {
 
@@ -88,6 +94,15 @@ class WebClientResponseExceptionTests {
 		WebClientResponseException ex = new WebClientResponseException(500, "reasonPhrase", null, null, null);
 		ex.initCause(new RuntimeException("example cause"));
 		assertThat(ex).hasMessage("500 reasonPhrase").hasRootCauseMessage("example cause");
+	}
+
+	@ParameterizedTest
+	@EnumSource
+	void createExceptionWithStatus(HttpStatus status) {
+		WebClientResponseException exception = WebClientResponseException
+				.create(status, "reasonPhrase", new HttpHeaders(), new byte[0], null, null);
+
+		assertThat(exception.getStatusCode()).isEqualTo(status);
 	}
 
 }

@@ -46,6 +46,7 @@ import org.springframework.util.ClassUtils;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.Errors;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.validation.annotation.ValidationAnnotationUtils;
 import org.springframework.validation.method.MethodValidationException;
 import org.springframework.validation.method.MethodValidationResult;
 import org.springframework.validation.method.ParameterErrors;
@@ -69,8 +70,6 @@ import org.springframework.validation.method.ParameterValidationResult;
  * at the type level of the containing target class, applying to all public service methods
  * of that class. By default, JSR-303 will validate against its default group only.
  *
- * <p>This functionality requires a Bean Validation 1.1+ provider.
- *
  * @author Juergen Hoeller
  * @author Rossen Stoyanchev
  * @since 3.1
@@ -79,7 +78,7 @@ import org.springframework.validation.method.ParameterValidationResult;
  */
 public class MethodValidationInterceptor implements MethodInterceptor {
 
-	private static final boolean reactorPresent = ClassUtils.isPresent(
+	private static final boolean REACTOR_PRESENT = ClassUtils.isPresent(
 			"reactor.core.publisher.Mono", MethodValidationInterceptor.class.getClassLoader());
 
 
@@ -152,7 +151,7 @@ public class MethodValidationInterceptor implements MethodInterceptor {
 		@Nullable Object[] arguments = invocation.getArguments();
 		Class<?>[] groups = determineValidationGroups(invocation);
 
-		if (reactorPresent) {
+		if (REACTOR_PRESENT) {
 			arguments = ReactorValidationHelper.insertAsyncValidation(
 					this.validationAdapter.getSpringValidatorAdapter(), this.adaptViolations,
 					target, method, arguments);
@@ -226,7 +225,7 @@ public class MethodValidationInterceptor implements MethodInterceptor {
 	 */
 	protected Class<?>[] determineValidationGroups(MethodInvocation invocation) {
 		Object target = getTarget(invocation);
-		return this.validationAdapter.determineValidationGroups(target, invocation.getMethod());
+		return ValidationAnnotationUtils.determineValidationGroups(target, invocation.getMethod());
 	}
 
 

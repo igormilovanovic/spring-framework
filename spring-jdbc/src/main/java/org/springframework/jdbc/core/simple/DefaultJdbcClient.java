@@ -79,7 +79,7 @@ final class DefaultJdbcClient implements JdbcClient {
 	}
 
 	public DefaultJdbcClient(NamedParameterJdbcOperations jdbcTemplate, @Nullable ConversionService conversionService) {
-		Assert.notNull(jdbcTemplate, "JdbcTemplate must not be null");
+		Assert.notNull(jdbcTemplate, "NamedParameterJdbcTemplate must not be null");
 		this.namedParamOps = jdbcTemplate;
 		this.conversionService =
 				(conversionService != null ? conversionService : DefaultConversionService.getSharedInstance());
@@ -240,7 +240,7 @@ final class DefaultJdbcClient implements JdbcClient {
 		}
 
 		@Override
-		@SuppressWarnings({"unchecked", "NullAway"}) // See https://github.com/uber/NullAway/issues/1075
+		@SuppressWarnings("unchecked")
 		public <T> MappedQuerySpec<@Nullable T> query(Class<T> mappedClass) {
 			RowMapper<?> rowMapper = rowMapperCache.computeIfAbsent(mappedClass, key ->
 					BeanUtils.isSimpleProperty(mappedClass) ?
@@ -342,7 +342,6 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
-			@SuppressWarnings("NullAway") // See https://github.com/uber/NullAway/issues/1075
 			public List<@Nullable Object> singleColumn() {
 				return classicOps.queryForList(sql, Object.class, indexedParams.toArray());
 			}
@@ -362,13 +361,11 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
-			@SuppressWarnings("NullAway") // See https://github.com/uber/NullAway/issues/1075
 			public Map<String, @Nullable Object> singleRow() {
 				return namedParamOps.queryForMap(sql, namedParamSource);
 			}
 
 			@Override
-			@SuppressWarnings("NullAway") // See https://github.com/uber/NullAway/issues/1075
 			public List<@Nullable Object> singleColumn() {
 				return namedParamOps.queryForList(sql, namedParamSource, Object.class);
 			}

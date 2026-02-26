@@ -38,6 +38,7 @@ import org.springframework.beans.testfixture.beans.TestAnnotation;
 import org.springframework.beans.testfixture.beans.TestBean;
 import org.springframework.beans.testfixture.beans.factory.DummyFactory;
 import org.springframework.cglib.proxy.NoOp;
+import org.springframework.core.ResolvableType;
 import org.springframework.core.annotation.AliasFor;
 import org.springframework.core.io.Resource;
 import org.springframework.util.ObjectUtils;
@@ -195,7 +196,7 @@ class BeanFactoryUtilsTests {
 		assertThat(beans.get("t2")).isEqualTo(t2);
 		assertThat(beans.get("t3")).isEqualTo(t3.getObject());
 		assertThat(beans.get("t4")).isInstanceOf(TestBean.class);
-		// t3 and t4 are found here as of Spring 2.0, since they are pre-registered
+		// t3 and t4 are found here, since they are pre-registered
 		// singleton instances, while testFactory1 and testFactory are *not* found
 		// because they are FactoryBean definitions that haven't been initialized yet.
 
@@ -552,6 +553,10 @@ class BeanFactoryUtilsTests {
 		assertThat(lbf.getBean("sfb2", CharSequence.class)).isInstanceOf(String.class);
 		assertThat(lbf.getBean("sfb1")).isInstanceOf(String.class);
 		assertThat(lbf.getBean("sfb2")).isInstanceOf(String.class);
+
+		assertThat(lbf.getBeanNamesForType(Object.class)).isNotEmpty();
+		assertThat(lbf.getBeanNamesForType(ResolvableType.forClass(Object.class))).isNotEmpty();
+		assertThat(lbf.getBeanNamesForType(ResolvableType.NONE)).isEmpty();
 	}
 
 	@Test
